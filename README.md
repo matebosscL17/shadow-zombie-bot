@@ -6,7 +6,12 @@
 - `/ip` – a szerver címe.
 - **Élő státusz** a `┃🟢・szerver-státusz` csatornában. Percenként frissül, és a bot neve alatt is látszik, hányan vannak fent.
 - **Szerver napló** a `┃📋・szerver-napló` csatornában (csak a staff látja). Ide kerülnek a kitiltások, feloldások, némítások, rangadások, rangelvételek, a Boss pálya indulása, a pályaszavazás eredménye és a pálya betöltése.
-- Új tag belépésekor `🧟 Játékos` rangot kap, és üdvözli a `┃👋・üdvözlés` csatornában.
+- **Új tagok:** a bot szép üdvözlő kártyát küld a `┃👋・üdvözlés` csatornába (profilkép, hányadik tag, szabályzat, szerver IP), és megadja az illő rangot:
+  - új ember → `🧟 Játékos`
+  - bot → `🤖 Bot`
+  - visszatérő tag → visszakapja a régi rangjait (VIP, Admin…, de a Némítottat is!). A 👑 Tulajdonost sosem adja vissza magától.
+  - A `/setup` a már bent lévőknek is megadja a Játékos / Bot rangot.
+  - Ehhez a fejlesztői oldalon be kell kapcsolni: **Bot → Server Members Intent**.
 
 ## Rangok, amiket a /setup létrehoz (fentről lefelé)
 | Rang | Mit tud |

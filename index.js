@@ -206,6 +206,7 @@ client.on('interactionCreate', async (it) => {
       const sorok = [];
       const naplo = (s) => { sorok.push('• ' + s); };
       await setup.felepit(it.guild, naplo);
+      naplo(await rangokPotlasa(it.guild));
       delete adat.statuszUzenet; mentes();
       statuszFrissit();
       return it.editReply(`✅ **Kész!**\n${sorok.join('\n')}\n\nNe felejtsd el: a **👑 Tulajdonos** rangot add magadnak (jobb klikk a nevedre → Rangok).`);
@@ -218,16 +219,87 @@ client.on('interactionCreate', async (it) => {
   }
 });
 
-// új tag: Játékos rang + üdvözlés
-client.on('guildMemberAdd', async (tag) => {
-  if (!cfg.ujTagJatekosRang || tag.guild.id !== cfg.guildId || tag.user.bot) return;
-  const r = tag.guild.roles.cache.find((x) => x.name === '🧟 Játékos');
-  if (r) await tag.roles.add(r).catch(() => {});
-  const ch = csatorna(tag.guild, 'udvozles');
-  if (ch) {
-    ch.send(`👋 Üdv a **${PREFIX}** közösségben, ${tag}! 🧟\nA zombi szerver címe: \`connect ${cim()}\``).catch(() => {});
-  }
+// ---------------- új tagok ----------------
+// Védett rangok, amiket a bot sosem ad vissza magától (ezeket csak a tulaj adhatja)
+const VEDETT = ['👑 Tulajdonos'];
+
+function illoRang(guild, tag) {
+  return guild.roles.cache.find((x) => x.name === (tag.user.bot ? '🤖 Bot' : '🧟 Játékos'));
+}
+
+// kilépéskor megjegyezzük a rangjait, hogy visszatéréskor visszakapja
+client.on('guildMemberRemove', (tag) => {
+  if (tag.guild.id !== cfg.guildId || tag.user.bot) return;
+  const rangok = tag.roles.cache
+    .filter((r) => r.id !== tag.guild.id && !r.managed && !VEDETT.includes(r.name))
+    .map((r) => r.id);
+  adat.regiRangok = adat.regiRangok || {};
+  if (rangok.length) adat.regiRangok[tag.id] = rangok;
+  mentes();
 });
+
+client.on('guildMemberAdd', async (tag) => {
+  if (tag.guild.id !== cfg.guildId) return;
+  const guild = tag.guild;
+  const me = guild.members.me;
+
+  // rangok: visszatérő tag -> régi rangjai (a Némított is!), új tag -> Játékos, bot -> Bot
+  const adando = [];
+  const regi = (adat.regiRangok || {})[tag.id];
+  if (regi && !tag.user.bot) {
+    for (const id of regi) {
+      const r = guild.roles.cache.get(id);
+      if (r && r.position < me.roles.highest.position) adando.push(r);
+    }
+  }
+  const alap = illoRang(guild, tag);
+  if (alap && !adando.includes(alap)) adando.push(alap);
+  if (adando.length) {
+    await tag.roles.add(adando, '[SHADOW] belépési rang').catch((e) => console.error('Rangadás hiba:', e.message));
+  }
+  if (regi) { delete adat.regiRangok[tag.id]; mentes(); }
+
+  if (tag.user.bot) return;
+
+  // üdvözlés
+  const ch = csatorna(guild, 'udvozles');
+  if (!ch) return;
+  const szab = guild.channels.cache.find((c) => c.name === setup.csatornaNev('szabaly'));
+  const stat = csatorna(guild, 'statusz');
+  const e = new EmbedBuilder()
+    .setColor(SZIN)
+    .setTitle(regi ? `👋 Üdv újra itthon, ${tag.user.username}!` : `🧟 Üdv a ${PREFIX} közösségben!`)
+    .setDescription(regi
+      ? `${tag} visszatért! Visszakaptad a régi rangjaidat. 💪`
+      : `Szia ${tag}! Örülünk, hogy itt vagy! 🎉\nTe vagy a(z) **${guild.memberCount}.** tagunk.`)
+    .setThumbnail(tag.user.displayAvatarURL({ size: 256 }))
+    .addFields(
+      { name: '📜 Szabályzat', value: szab ? `Olvasd el: ${szab}` : 'Olvasd el a szabályzatot!', inline: true },
+      { name: '🎮 Zombie szerver', value: `\`connect ${cim()}\``, inline: true },
+      { name: '🟢 Ki van fent?', value: stat ? `${stat} vagy \`/szerver\`` : '`/szerver`', inline: true },
+      { name: '🏷️ Rangod', value: adando.length ? adando.map((r) => r.toString()).join(' ') : '—' },
+    )
+    .setFooter({ text: PREFIX })
+    .setTimestamp(new Date());
+  ch.send({ content: `${tag}`, embeds: [e] }).catch(() => {});
+});
+
+// /setup után: a már bent lévők is megkapják az illő rangot (Játékos / Bot)
+async function rangokPotlasa(guild) {
+  if (!intents.includes(GatewayIntentBits.GuildMembers)) {
+    return 'A tagok rangjait nem tudtam pótolni: kapcsold be a "Server Members Intent"-et a fejlesztői oldalon.';
+  }
+  await guild.roles.fetch();
+  const tagok = await guild.members.fetch();
+  let db = 0;
+  for (const tag of tagok.values()) {
+    const r = illoRang(guild, tag);
+    if (r && !tag.roles.cache.has(r.id)) {
+      await tag.roles.add(r, '[SHADOW] setup').then(() => db++).catch(() => {});
+    }
+  }
+  return `Rangok pótolva: ${db} tag kapta meg a Játékos / Bot rangot.`;
+}
 
 // discord.js régebbi verziója "ready", az újabb "clientReady" eseményt küld - mindkettőt figyeljük
 let elindult = false;
@@ -264,6 +336,8 @@ async function indulas() {
   }
 
   await guild?.channels.fetch().catch(() => {});
+  // tagok betöltése, hogy kilépéskor tudjuk a rangjaikat
+  if (intents.includes(GatewayIntentBits.GuildMembers)) await guild?.members.fetch().catch(() => {});
   statuszFrissit();
   setInterval(statuszFrissit, Math.max(30, cfg.statuszMasodperc || 60) * 1000);
   setInterval(naploLekeres, Math.max(10, cfg.naploMasodperc || 15) * 1000);
