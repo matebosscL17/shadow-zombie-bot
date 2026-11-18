@@ -39,6 +39,9 @@ Másold le a `config.example.json` fájlt `config.json` néven, és töltsd ki:
 ⚠️ Ha rossz az RCON jelszó, a bot magától leáll a próbálkozással, különben a szerver kitiltaná az IP-jét.
 
 ## 3. Futtatás Termuxban (telefonon)
+A legegyszerűbb: `bash inditas.sh`. Ez mindent elintéz: telepít, ellenőrzi a config.json-t, elindítja a botot, és kiírja a naplót.
+
+Kézzel így megy:
 ```
 pkg install nodejs-lts
 cd shadowbot

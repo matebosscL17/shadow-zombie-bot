@@ -37,8 +37,15 @@ let adat = {};
 try { adat = JSON.parse(fs.readFileSync(ADAT_UT, 'utf8')); } catch (_) {}
 const mentes = () => fs.writeFileSync(ADAT_UT, JSON.stringify(adat, null, 2));
 
+if (!cfg.token || cfg.token.startsWith('IDE_')) {
+  console.error('HIBA: nincs kitöltve a token a config.json-ban!');
+  process.exit(1);
+}
+
+// A "Server Members Intent" nélkül a Discord nem engedi belépni a botot.
+// Ha egyszer már emiatt nem sikerült, többé nem kérjük (az új tagok rangadása kimarad).
 const intents = [GatewayIntentBits.Guilds];
-if (cfg.ujTagJatekosRang) intents.push(GatewayIntentBits.GuildMembers);
+if (cfg.ujTagJatekosRang && !adat.nincsTagIntent) intents.push(GatewayIntentBits.GuildMembers);
 const client = new Client({ intents });
 
 // ---------------- segédek ----------------
@@ -239,10 +246,14 @@ async function indulas() {
 
   const rest = new REST({ version: '10' }).setToken(cfg.token);
   try {
-    // régi, globális parancsok törlése (ha volt), hogy ne legyen dupla
-    await rest.put(Routes.applicationCommands(client.user.id), { body: [] }).catch(() => {});
-    await rest.put(Routes.applicationGuildCommands(client.user.id, cfg.guildId), { body: PARANCSOK });
-    console.log(`Parancsok regisztrálva (${PARANCSOK.length} db): /szerver /jatekosok /ip /setup`);
+    // minden szerverre, ahol a bot bent van (így rossz guildId esetén is megjelennek)
+    const idk = new Set([...client.guilds.cache.keys()]);
+    if (cfg.guildId) idk.add(cfg.guildId);
+    for (const gid of idk) {
+      await rest.put(Routes.applicationGuildCommands(client.user.id, gid), { body: PARANCSOK })
+        .then(() => console.log(`Parancsok regisztrálva: ${client.guilds.cache.get(gid)?.name || gid} (/szerver /jatekosok /ip /setup)`))
+        .catch((e) => { if (gid === cfg.guildId) throw e; });
+    }
   } catch (e) {
     console.error('HIBA a / parancsok regisztrálásánál:', e.message);
     if (e.code === 50001 || /Missing Access/i.test(e.message)) {
@@ -261,4 +272,29 @@ client.once('ready', indulas);
 client.once('clientReady', indulas);
 
 process.on('unhandledRejection', (e) => console.error('Hiba:', e?.message || e));
-client.login(cfg.token);
+// új szerverre meghívva is kapjon parancsokat
+client.on('guildCreate', (g) => {
+  new REST({ version: '10' }).setToken(cfg.token)
+    .put(Routes.applicationGuildCommands(client.user.id, g.id), { body: PARANCSOK })
+    .then(() => console.log(`Parancsok regisztrálva: ${g.name}`)).catch(() => {});
+});
+
+console.log(`${PREFIX} bot indul...`);
+client.login(cfg.token).catch((e) => {
+  const uz = String(e.message || e);
+  if (/disallowed intents/i.test(uz)) {
+    adat.nincsTagIntent = true; mentes();
+    console.error('HIBA: a fejlesztői oldalon nincs bekapcsolva a "Server Members Intent".');
+    console.error('  Most nélküle indulok újra (az új tagok nem kapnak automatikusan rangot).');
+    console.error('  Ha kell: discord.com/developers -> a bot -> Bot -> Server Members Intent BE, utána: pm2 restart shadowbot');
+    setTimeout(() => process.exit(1), 1000); // a pm2 magától újraindítja
+    return;
+  }
+  if (/token/i.test(uz)) {
+    console.error('HIBA: rossz a bot tokenje a config.json-ban!');
+    console.error('  discord.com/developers -> a bot -> Bot -> Reset Token, és az újat másold be.');
+  } else {
+    console.error('HIBA belépéskor:', uz);
+  }
+  setTimeout(() => process.exit(1), 30000);
+});
