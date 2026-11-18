@@ -186,6 +186,7 @@ const PARANCSOK = [
     .addSubcommand((sc) => sc.setName('kuldes').setDescription('Egy kész Patch Notes kiküldése a patchnotes mappából')
       .addStringOption((o) => o.setName('fajl').setDescription('Melyik Patch Notes (dátum)').setRequired(true).setAutocomplete(true)))
     .addSubcommand((sc) => sc.setName('iras').setDescription('Új Patch Notes írása itt a Discordon')),
+  new SlashCommandBuilder().setName('szabalyzat').setDescription('Kiírja / frissíti a szabályzatot a szabályzat csatornában (Admin és fölötte)'),
 ].map((c) => c.toJSON());
 
 // ---------------- Patch Notes ----------------
@@ -203,20 +204,65 @@ function joga(it) {
   return it.member.roles.cache.some((r) => ['👑 Tulajdonos', '🔱 Főadmin', '🛡️ Admin'].includes(r.name));
 }
 
-// a Discord egy üzenetben max 2000 karaktert enged: szakaszonként (## ) daraboljuk
+// a Discord egy üzenetben max 2000 karaktert enged: egész szakaszokat (## ) rakunk egy üzenetbe
 function darabol(szoveg) {
-  const sorok = szoveg.replace(/\r/g, '').split('\n');
+  const MAX = 1900;
+  const sorok = szoveg.replace(/\r/g, '').trim().split('\n');
+  // szakaszokra bontás
+  const szakaszok = [];
+  for (const sor of sorok) {
+    if (sor.startsWith('## ') || !szakaszok.length) szakaszok.push(sor);
+    else szakaszok[szakaszok.length - 1] += '\n' + sor;
+  }
+  // túl hosszú szakasz: sorok mentén vágjuk
+  const elemek = [];
+  for (const sz of szakaszok) {
+    if (sz.length <= MAX) { elemek.push(sz); continue; }
+    let akt = '';
+    for (const sor of sz.split('\n')) {
+      if (akt && (akt + '\n' + sor).length > MAX) { elemek.push(akt); akt = sor; } else akt = akt ? akt + '\n' + sor : sor;
+    }
+    if (akt) elemek.push(akt);
+  }
+  // szakaszok összepakolása üzenetekbe
   const darabok = [];
   let akt = '';
-  for (const sor of sorok) {
-    const uj = akt ? akt + '\n' + sor : sor;
-    if (uj.length > 1900 || (sor.startsWith('## ') && akt.length > 1200)) {
-      if (akt.trim()) darabok.push(akt);
-      akt = sor;
-    } else akt = uj;
+  for (const e of elemek) {
+    if (akt && (akt + '\n\n' + e).length > MAX) { darabok.push(akt); akt = e; } else akt = akt ? akt + '\n\n' + e : e;
   }
   if (akt.trim()) darabok.push(akt);
   return darabok;
+}
+
+// ---------------- Szabályzat ----------------
+// A szabalyzat.md tartalmát írja ki. Ha már ki volt írva, a régi üzeneteket
+// átírja (nem lesz dupla), így a szabályzat mindig egy helyen, frissen van.
+async function szabalyzatKuldes(guild) {
+  const ch = csatorna(guild, 'szabaly');
+  if (!ch) throw new Error('Nincs meg a szabályzat csatorna. Futtasd le a /setup-ot!');
+  const szoveg = fs.readFileSync(path.join(__dirname, 'szabalyzat.md'), 'utf8');
+  const darabok = darabol(szoveg);
+
+  const regiek = [];
+  for (const id of adat.szabalyUzenetek || []) {
+    const m = await ch.messages.fetch(id).catch(() => null);
+    if (m) regiek.push(m);
+  }
+
+  if (regiek.length === darabok.length) {
+    for (let i = 0; i < darabok.length; i++) await regiek[i].edit({ content: darabok[i], allowedMentions: { parse: [] } });
+    return { ch, uj: false };
+  }
+
+  for (const m of regiek) await m.delete().catch(() => {});
+  const idk = [];
+  for (const d of darabok) {
+    const m = await ch.send({ content: d, allowedMentions: { parse: [] } });
+    idk.push(m.id);
+  }
+  adat.szabalyUzenetek = idk;
+  mentes();
+  return { ch, uj: true };
 }
 
 async function patchKuldes(guild, szoveg) {
@@ -268,6 +314,13 @@ client.on('interactionCreate', async (it) => {
       return it.editReply({ embeds: [statuszEmbed(s)] });
     }
 
+    if (it.commandName === 'szabalyzat') {
+      if (!joga(it)) return it.reply({ content: '❌ Ezt csak az Admin és afölötti rang használhatja.', ephemeral: true });
+      await it.deferReply({ ephemeral: true });
+      const { ch, uj } = await szabalyzatKuldes(it.guild);
+      return it.editReply(uj ? `✅ A szabályzat kiírva ide: ${ch}` : `✅ A szabályzat frissítve itt: ${ch}`);
+    }
+
     if (it.commandName === 'patchnotes') {
       if (!joga(it)) return it.reply({ content: '❌ Ezt csak az Admin és afölötti rang használhatja.', ephemeral: true });
       if (it.options.getSubcommand() === 'iras') {
@@ -299,6 +352,8 @@ client.on('interactionCreate', async (it) => {
       const naplo = (s) => { sorok.push('• ' + s); };
       await setup.felepit(it.guild, naplo);
       naplo(await rangokPotlasa(it.guild));
+      await szabalyzatKuldes(it.guild).then(({ uj }) => naplo(uj ? 'Szabályzat kiírva.' : 'Szabályzat frissítve.'))
+        .catch((e) => naplo('Szabályzat hiba: ' + e.message));
       delete adat.statuszUzenet; mentes();
       statuszFrissit();
       return it.editReply(`✅ **Kész!**\n${sorok.join('\n')}\n\nNe felejtsd el: a **👑 Tulajdonos** rangot add magadnak (jobb klikk a nevedre → Rangok).`);
