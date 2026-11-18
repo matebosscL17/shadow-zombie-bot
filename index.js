@@ -288,7 +288,8 @@ const PARANCSOK = [
   new SlashCommandBuilder().setName('patchnotes').setDescription('Patch Notes kiírása a CS 1.6 szerver frissítéseiről (Admin és fölötte)')
     .addSubcommand((sc) => sc.setName('kuldes').setDescription('Egy kész Patch Notes kiküldése a patchnotes mappából')
       .addStringOption((o) => o.setName('fajl').setDescription('Melyik Patch Notes (ha üresen hagyod: a legújabb)').setRequired(false).setAutocomplete(true)))
-    .addSubcommand((sc) => sc.setName('iras').setDescription('Új Patch Notes írása itt a Discordon')),
+    .addSubcommand((sc) => sc.setName('iras').setDescription('Új Patch Notes írása itt a Discordon'))
+    .addSubcommand((sc) => sc.setName('frissites').setDescription('Most rögtön megnézi a GitHubot, és kiküldi az új Patch Notes-okat')),
   new SlashCommandBuilder().setName('udvozles-teszt').setDescription('Kipróbálja az üdvözlést és a rangadást rajtad (Admin és fölötte)'),
   new SlashCommandBuilder().setName('szabalyzat').setDescription('Kiírja / frissíti a szabályzatot a szabályzat csatornában (Admin és fölötte)'),
 ].map((c) => c.toJSON());
@@ -513,6 +514,14 @@ client.on('interactionCreate', async (it) => {
 
     if (it.commandName === 'patchnotes') {
       if (!joga(it)) return it.reply({ content: '❌ Ezt csak az Admin és afölötti rang használhatja.', ephemeral: true });
+      if (it.options.getSubcommand() === 'frissites') {
+        await it.deferReply({ ephemeral: true });
+        const kiment = await tartalomFrissites();
+        const lista = patchFajlok();
+        return it.editReply(kiment && kiment.length
+          ? `✅ Kiküldve: ${kiment.map((f) => '`' + f + '`').join(', ')}`
+          : `ℹ️ Nincs új Patch Notes. A botnál ezek vannak: ${lista.map((f) => '`' + f + '`').join(', ') || 'egy sem'}\nHa valamelyik nem ment ki, küldd ki kézzel: \`/patchnotes kuldes\``);
+      }
       if (it.options.getSubcommand() === 'iras') {
         const ma = new Date();
         const datum = `${ma.getFullYear()}.${String(ma.getMonth() + 1).padStart(2, '0')}.${String(ma.getDate()).padStart(2, '0')}`;
@@ -666,16 +675,28 @@ async function tartalomFrissites() {
   const raw = `https://raw.githubusercontent.com/${GITHUB_REPO}/main`;
   let uj = 0;
   try {
-    // Patch Notes mappa
-    const r = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/patchnotes`, { headers: { 'User-Agent': 'shadow-zombie-bot' } });
-    if (r.ok) {
-      const lista = await r.json();
-      fs.mkdirSync(PATCH_MAPPA, { recursive: true });
-      for (const f of lista) {
-        if (!f.name.endsWith('.md')) continue;
-        const ut = path.join(PATCH_MAPPA, f.name);
-        const tart = await letolt(`${raw}/patchnotes/${encodeURIComponent(f.name)}`);
+    // Patch Notes mappa: először a lista.json (nincs korlátozva), ha az nincs, a GitHub API
+    let nevek = null;
+    try {
+      const l = JSON.parse((await letolt(`${raw}/patchnotes/lista.json?t=${Date.now()}`)).toString('utf8'));
+      if (Array.isArray(l)) nevek = l;
+    } catch (e) {
+      console.error('Patch Notes lista.json nem jött le:', e.message);
+    }
+    if (!nevek) {
+      const r = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/patchnotes`, { headers: { 'User-Agent': 'shadow-zombie-bot' } });
+      if (r.ok) nevek = (await r.json()).map((f) => f.name);
+      else console.error(`GitHub API hiba: HTTP ${r.status} (lehet, hogy túl sok a lekérés a hoszting IP-jéről)`);
+    }
+    fs.mkdirSync(PATCH_MAPPA, { recursive: true });
+    for (const nev of nevek || []) {
+      if (!nev.endsWith('.md')) continue;
+      const ut = path.join(PATCH_MAPPA, path.basename(nev));
+      try {
+        const tart = await letolt(`${raw}/patchnotes/${encodeURIComponent(nev)}`);
         if (!fs.existsSync(ut) || !fs.readFileSync(ut).equals(tart)) { fs.writeFileSync(ut, tart); uj++; }
+      } catch (e) {
+        console.error(`Patch Notes letöltési hiba (${nev}):`, e.message);
       }
     }
     // szabályzat és banner
@@ -687,9 +708,10 @@ async function tartalomFrissites() {
       } catch (_) {}
     }
     console.log(`GitHub frissítés kész (${uj} új/változott fájl). Patch Notes: ${patchFajlok().join(', ') || 'nincs'}`);
-    await patchAutoKuldes();
+    return await patchAutoKuldes();
   } catch (e) {
     console.error('GitHub frissítés hiba:', e.message);
+    return [];
   }
 }
 
@@ -697,21 +719,22 @@ async function tartalomFrissites() {
 // Ha a GitHubra új Patch Notes kerül (a szerver változásairól), a bot magától
 // kiküldi a Patch Notes csatornába. A már kiküldötteket megjegyzi (adat.json).
 async function patchAutoKuldes() {
-  if (cfg.patchAuto === false) return;
+  if (cfg.patchAuto === false) return [];
   const guild = client.guilds.cache.get(cfg.guildId);
-  if (!guild) return;
+  if (!guild) return [];
   const mind = patchFajlok().slice().sort(); // régebbitől az újabbig
   if (!Array.isArray(adat.patchIsmert)) {
     // első indulás ezzel a funkcióval: a meglévőket nem küldjük ki újra
     adat.patchIsmert = mind;
     mentes();
     console.log(`Patch Notes automatikus kiküldés BE. Már meglévő: ${mind.length} db (ezeket nem küldöm ki újra).`);
-    return;
+    return [];
   }
   const ujak = mind.filter((f) => !adat.patchIsmert.includes(f));
-  if (!ujak.length) return;
+  if (!ujak.length) return [];
   const ch = csatorna(guild, 'patch');
-  if (!ch) { console.error('Patch Notes: nincs meg a csatorna, nem tudom kiküldeni:', ujak.join(', ')); return; }
+  if (!ch) { console.error('Patch Notes: nincs meg a csatorna, nem tudom kiküldeni:', ujak.join(', ')); return []; }
+  const kiment = [];
   for (const f of ujak) {
     const szoveg = patchSzoveg(f);
     if (!szoveg) continue;
@@ -719,11 +742,13 @@ async function patchAutoKuldes() {
       await patchKuldes(guild, szoveg);
       adat.patchIsmert.push(f);
       mentes();
+      kiment.push(f);
       console.log(`Patch Notes automatikusan kiküldve: ${f}`);
     } catch (e) {
       console.error(`Patch Notes kiküldési hiba (${f}):`, e.message);
     }
   }
+  return kiment;
 }
 
 async function indulas() {
