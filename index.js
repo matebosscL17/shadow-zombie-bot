@@ -468,6 +468,7 @@ client.on('interactionCreate', async (it) => {
         fs.mkdirSync(PATCH_MAPPA, { recursive: true });
         const nev = cim.replace(/[^0-9A-Za-z._-]+/g, '_').replace(/^_+|_+$/g, '') || String(Date.now());
         fs.writeFileSync(path.join(PATCH_MAPPA, nev + '.md'), teljes);
+        adat.patchIsmert = [...new Set([...(adat.patchIsmert || []), nev])]; mentes(); // ezt mar kikuldtuk
       } catch (_) {}
       return it.editReply(`✅ Kiküldve ide: ${ch}`);
     } catch (e) {
@@ -686,8 +687,42 @@ async function tartalomFrissites() {
       } catch (_) {}
     }
     console.log(`GitHub frissítés kész (${uj} új/változott fájl). Patch Notes: ${patchFajlok().join(', ') || 'nincs'}`);
+    await patchAutoKuldes();
   } catch (e) {
     console.error('GitHub frissítés hiba:', e.message);
+  }
+}
+
+// ---------------- Patch Notes automatikus kiküldése ----------------
+// Ha a GitHubra új Patch Notes kerül (a szerver változásairól), a bot magától
+// kiküldi a Patch Notes csatornába. A már kiküldötteket megjegyzi (adat.json).
+async function patchAutoKuldes() {
+  if (cfg.patchAuto === false) return;
+  const guild = client.guilds.cache.get(cfg.guildId);
+  if (!guild) return;
+  const mind = patchFajlok().slice().sort(); // régebbitől az újabbig
+  if (!Array.isArray(adat.patchIsmert)) {
+    // első indulás ezzel a funkcióval: a meglévőket nem küldjük ki újra
+    adat.patchIsmert = mind;
+    mentes();
+    console.log(`Patch Notes automatikus kiküldés BE. Már meglévő: ${mind.length} db (ezeket nem küldöm ki újra).`);
+    return;
+  }
+  const ujak = mind.filter((f) => !adat.patchIsmert.includes(f));
+  if (!ujak.length) return;
+  const ch = csatorna(guild, 'patch');
+  if (!ch) { console.error('Patch Notes: nincs meg a csatorna, nem tudom kiküldeni:', ujak.join(', ')); return; }
+  for (const f of ujak) {
+    const szoveg = patchSzoveg(f);
+    if (!szoveg) continue;
+    try {
+      await patchKuldes(guild, szoveg);
+      adat.patchIsmert.push(f);
+      mentes();
+      console.log(`Patch Notes automatikusan kiküldve: ${f}`);
+    } catch (e) {
+      console.error(`Patch Notes kiküldési hiba (${f}):`, e.message);
+    }
   }
 }
 
@@ -725,7 +760,7 @@ async function indulas() {
 
   await guild?.channels.fetch().catch(() => {});
   await tartalomFrissites();
-  setInterval(tartalomFrissites, 30 * 60 * 1000); // félóránként
+  setInterval(tartalomFrissites, 10 * 60 * 1000); // 10 percenként
   // tagok betöltése, hogy kilépéskor tudjuk a rangjaikat
   if (VAN_TAG_INTENT) {
     await guild?.members.fetch().catch(() => {});

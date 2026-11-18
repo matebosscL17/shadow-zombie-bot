@@ -82,3 +82,9 @@ Naplót így nézhetsz: `pm2 logs shadowbot`
 - Töltsd fel: `index.js`, `lib/`, `package.json`, `config.json`. Indító fájl: `index.js`.
 - A **Patch Notes-okat, a szabályzatot és a bannert a bot magától letölti a GitHubról** induláskor és félóránként, ezeket nem kell kézzel feltölteni. Ha új Patch Notes kerül a GitHubra, pár percen belül ott lesz a `/patchnotes kuldes` listában.
 - Kikapcsolás: a `config.json`-ba `"githubFrissites": false`.
+
+## Patch Notes automatikusan
+- Ha a GitHub `patchnotes` mappájába új fájl kerül, a bot **10 percen belül magától kiküldi** a Patch Notes csatornába. Nem kell hozzá semmit beírni, és a botot sem kell frissíteni.
+- A már kiküldötteket megjegyzi (`adat.json`), kétszer nem küldi ki.
+- Az első indításkor a már meglévőket nem küldi ki újra; ezeket a `/patchnotes kuldes` paranccsal tudod kézzel kiküldeni.
+- Kikapcsolás: `config.json` → `"patchAuto": false`.
