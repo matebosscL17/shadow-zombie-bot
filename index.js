@@ -47,8 +47,13 @@ if (!cfg.token || cfg.token.startsWith('IDE_')) {
 
 // A "Server Members Intent" nélkül a Discord nem engedi belépni a botot.
 // Ha egyszer már emiatt nem sikerült, többé nem kérjük (az új tagok rangadása kimarad).
+// Ha az előző indulás 3 percen belül a hiányzó "Server Members Intent" miatt bukott el,
+// most nélküle indulunk. Később (pm2 restart) mindig újra megpróbáljuk vele.
 const intents = [GatewayIntentBits.Guilds];
-if (cfg.ujTagJatekosRang && !adat.nincsTagIntent) intents.push(GatewayIntentBits.GuildMembers);
+const tagIntentHiba = adat.nincsTagIntentIdo && Date.now() - adat.nincsTagIntentIdo < 3 * 60 * 1000;
+if (cfg.ujTagJatekosRang !== false && !tagIntentHiba) intents.push(GatewayIntentBits.GuildMembers);
+const VAN_TAG_INTENT = intents.includes(GatewayIntentBits.GuildMembers);
+delete adat.nincsTagIntent; // régi verzió jelzője
 const client = new Client({ intents });
 
 // ---------------- segédek ----------------
@@ -259,6 +264,7 @@ const PARANCSOK = [
     .addSubcommand((sc) => sc.setName('kuldes').setDescription('Egy kész Patch Notes kiküldése a patchnotes mappából')
       .addStringOption((o) => o.setName('fajl').setDescription('Melyik Patch Notes (dátum)').setRequired(true).setAutocomplete(true)))
     .addSubcommand((sc) => sc.setName('iras').setDescription('Új Patch Notes írása itt a Discordon')),
+  new SlashCommandBuilder().setName('udvozles-teszt').setDescription('Kipróbálja az üdvözlést és a rangadást rajtad (Admin és fölötte)'),
   new SlashCommandBuilder().setName('szabalyzat').setDescription('Kiírja / frissíti a szabályzatot a szabályzat csatornában (Admin és fölötte)'),
 ].map((c) => c.toJSON());
 
@@ -387,6 +393,20 @@ client.on('interactionCreate', async (it) => {
       return it.editReply({ embeds: [statuszEmbed(s, false)], components: statuszGombok(it.guild) });
     }
 
+    if (it.commandName === 'udvozles-teszt') {
+      if (!joga(it)) return it.reply({ content: '❌ Ezt csak az Admin és afölötti rang használhatja.', ephemeral: true });
+      await it.deferReply({ ephemeral: true });
+      const g = it.guild;
+      const hibak = [];
+      if (!VAN_TAG_INTENT) hibak.push('❌ **Server Members Intent KI van kapcsolva** → a bot nem veszi észre, ha valaki belép. Kapcsold be: discord.com/developers → a botod → **Bot** → **Server Members Intent** → Save Changes, utána `pm2 restart shadowbot`.');
+      if (!csatorna(g, 'udvozles')) hibak.push('❌ Nincs meg az üdvözlés csatorna → futtasd a `/setup`-ot.');
+      const jr = g.roles.cache.find((x) => x.name === '🧟 Játékos');
+      if (!jr) hibak.push('❌ Nincs „🧟 Játékos” rang → futtasd a `/setup`-ot.');
+      else if (jr.position >= g.members.me.roles.highest.position) hibak.push('❌ A bot rangja a „🧟 Játékos” rang **alatt** van → Szerverbeállítások → Rangok → húzd a bot rangját **legfelülre**.');
+      await ujTag(it.member, true);
+      return it.editReply(hibak.length ? `**Ezeket kell megjavítani:**\n${hibak.join('\n')}` : '✅ Minden rendben! Megnéztem: az üdvözlés kiment, és a rangot is megkaptad.');
+    }
+
     if (it.commandName === 'szabalyzat') {
       if (!joga(it)) return it.reply({ content: '❌ Ezt csak az Admin és afölötti rang használhatja.', ephemeral: true });
       await it.deferReply({ ephemeral: true });
@@ -458,8 +478,11 @@ client.on('guildMemberRemove', (tag) => {
   mentes();
 });
 
-client.on('guildMemberAdd', async (tag) => {
+client.on('guildMemberAdd', (tag) => ujTag(tag).catch((e) => console.error('Belépés hiba:', e.message)));
+
+async function ujTag(tag, teszt = false) {
   if (tag.guild.id !== cfg.guildId) return;
+  console.log(`Új tag: ${tag.user.tag}${teszt ? ' (teszt)' : ''}`);
   const guild = tag.guild;
   const me = guild.members.me;
 
@@ -475,7 +498,10 @@ client.on('guildMemberAdd', async (tag) => {
   const alap = illoRang(guild, tag);
   if (alap && !adando.includes(alap)) adando.push(alap);
   if (adando.length) {
-    await tag.roles.add(adando, '[SHADOW] belépési rang').catch((e) => console.error('Rangadás hiba:', e.message));
+    await tag.roles.add(adando, '[SHADOW] belépési rang').catch((e) => {
+      console.error('Rangadás hiba:', e.message);
+      console.error('  Húzd a bot rangját a Discord szerver beállításaiban (Rangok) LEGFELÜLRE!');
+    });
   }
   if (regi) { delete adat.regiRangok[tag.id]; mentes(); }
 
@@ -501,12 +527,12 @@ client.on('guildMemberAdd', async (tag) => {
     )
     .setFooter({ text: PREFIX })
     .setTimestamp(new Date());
-  ch.send({ content: `${tag}`, embeds: [e] }).catch(() => {});
-});
+  await ch.send({ content: `${tag}`, embeds: [e] }).catch((er) => console.error('Üdvözlés hiba:', er.message));
+}
 
 // /setup után: a már bent lévők is megkapják az illő rangot (Játékos / Bot)
 async function rangokPotlasa(guild) {
-  if (!intents.includes(GatewayIntentBits.GuildMembers)) {
+  if (!VAN_TAG_INTENT) {
     return 'A tagok rangjait nem tudtam pótolni: kapcsold be a "Server Members Intent"-et a fejlesztői oldalon.';
   }
   await guild.roles.fetch();
@@ -557,7 +583,15 @@ async function indulas() {
 
   await guild?.channels.fetch().catch(() => {});
   // tagok betöltése, hogy kilépéskor tudjuk a rangjaikat
-  if (intents.includes(GatewayIntentBits.GuildMembers)) await guild?.members.fetch().catch(() => {});
+  if (VAN_TAG_INTENT) {
+    await guild?.members.fetch().catch(() => {});
+    console.log('Server Members Intent: BE - az új tagokat üdvözlöm és rangot adok nekik.');
+  } else {
+    console.error('FIGYELEM: a "Server Members Intent" KI van kapcsolva, ezért a bot NEM látja az új tagokat!');
+    console.error('  discord.com/developers -> a botod -> Bot -> Server Members Intent BE -> Save Changes, utána: pm2 restart shadowbot');
+    const nap = guild && csatorna(guild, 'naplo');
+    if (nap) nap.send('⚠️ **A bot nem látja az új tagokat**, ezért nem üdvözli őket és nem ad rangot.\nKapcsold be: **discord.com/developers → a botod → Bot → Server Members Intent → Save Changes**, utána Termuxban: `pm2 restart shadowbot`').catch(() => {});
+  }
   statuszFrissit();
   setInterval(statuszFrissit, Math.max(30, cfg.statuszMasodperc || 60) * 1000);
   setInterval(naploLekeres, Math.max(10, cfg.naploMasodperc || 15) * 1000);
@@ -577,7 +611,7 @@ console.log(`${PREFIX} bot indul...`);
 client.login(cfg.token).catch((e) => {
   const uz = String(e.message || e);
   if (/disallowed intents/i.test(uz)) {
-    adat.nincsTagIntent = true; mentes();
+    adat.nincsTagIntentIdo = Date.now(); mentes();
     console.error('HIBA: a fejlesztői oldalon nincs bekapcsolva a "Server Members Intent".');
     console.error('  Most nélküle indulok újra (az új tagok nem kapnak automatikusan rangot).');
     console.error('  Ha kell: discord.com/developers -> a bot -> Bot -> Server Members Intent BE, utána: pm2 restart shadowbot');
