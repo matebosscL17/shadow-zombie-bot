@@ -262,7 +262,7 @@ const PARANCSOK = [
   new SlashCommandBuilder().setName('setup').setDescription('Felépíti a Discord szervert: rangok, csatornák, jogok (csak a tulaj)'),
   new SlashCommandBuilder().setName('patchnotes').setDescription('Patch Notes kiírása a CS 1.6 szerver frissítéseiről (Admin és fölötte)')
     .addSubcommand((sc) => sc.setName('kuldes').setDescription('Egy kész Patch Notes kiküldése a patchnotes mappából')
-      .addStringOption((o) => o.setName('fajl').setDescription('Melyik Patch Notes (dátum)').setRequired(true).setAutocomplete(true)))
+      .addStringOption((o) => o.setName('fajl').setDescription('Melyik Patch Notes (ha üresen hagyod: a legújabb)').setRequired(false).setAutocomplete(true)))
     .addSubcommand((sc) => sc.setName('iras').setDescription('Új Patch Notes írása itt a Discordon')),
   new SlashCommandBuilder().setName('udvozles-teszt').setDescription('Kipróbálja az üdvözlést és a rangadást rajtad (Admin és fölötte)'),
   new SlashCommandBuilder().setName('szabalyzat').setDescription('Kiírja / frissíti a szabályzatot a szabályzat csatornában (Admin és fölötte)'),
@@ -401,8 +401,14 @@ client.on('interactionCreate', async (it) => {
   // Patch Notes fájl választó
   if (it.isAutocomplete() && it.commandName === 'patchnotes') {
     const keres = it.options.getFocused().toLowerCase();
-    return it.respond(patchFajlok().filter((f) => f.toLowerCase().includes(keres)).slice(0, 25)
-      .map((f) => ({ name: f, value: f }))).catch(() => {});
+    const lista = patchFajlok();
+    if (!lista.length) {
+      console.error(`Patch Notes: nincs .md fájl itt: ${PATCH_MAPPA}`);
+      return it.respond([{ name: '⚠️ Nincs Patch Notes fájl a botnál – írd be Termuxban: git pull', value: '__nincs__' }]).catch(() => {});
+    }
+    const talalt = lista.filter((f) => f.toLowerCase().includes(keres));
+    return it.respond((talalt.length ? talalt : lista).slice(0, 25)
+      .map((f, n) => ({ name: n === 0 && !keres ? `${f}  (legújabb)` : f, value: f }))).catch(() => {});
   }
 
   // Patch Notes írás ablak beküldése
@@ -474,9 +480,13 @@ client.on('interactionCreate', async (it) => {
         );
         return it.showModal(modal);
       }
-      const fajl = path.basename(it.options.getString('fajl'));
+      const lista = patchFajlok();
+      if (!lista.length) {
+        return it.reply({ content: '❌ A botnál nincs egy Patch Notes fájl sem (`patchnotes` mappa).\nTermuxban: `cd shadow-zombie-bot` → `git pull` → `pm2 restart shadowbot`\nVagy írj újat: `/patchnotes iras`', ephemeral: true });
+      }
+      const fajl = path.basename(it.options.getString('fajl') || lista[0]);
       const ut = path.join(PATCH_MAPPA, fajl + '.md');
-      if (!fs.existsSync(ut)) return it.reply({ content: `❌ Nincs ilyen Patch Notes: ${fajl}`, ephemeral: true });
+      if (!fs.existsSync(ut)) return it.reply({ content: `❌ Nincs ilyen Patch Notes: **${fajl}**\nEzek vannak: ${lista.map((f) => '`' + f + '`').join(', ')}`, ephemeral: true });
       await it.deferReply({ ephemeral: true });
       const ch = await patchKuldes(it.guild, fs.readFileSync(ut, 'utf8'));
       return it.editReply(`✅ Kiküldve ide: ${ch}`);
