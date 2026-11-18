@@ -6,5 +6,12 @@
   "rconJelszo": "",
   "statuszMasodperc": 60,
   "naploMasodperc": 15,
-  "ujTagJatekosRang": true
+  "ujTagJatekosRang": true,
+  "csatornak": {
+    "patch": "",
+    "szabaly": "",
+    "statusz": "",
+    "naplo": "",
+    "udvozles": ""
+  }
 }

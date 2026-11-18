@@ -171,9 +171,34 @@ function statuszGombok(guild) {
   return [sor];
 }
 
+// Csatorna keresése. Sorrend:
+//  1) config.json "csatornak": { "patch": "csatorna ID" } - ha kézzel megadod
+//  2) a /setup által adott pontos név
+//  3) bármilyen díszítésű név, amiben benne van a kulcsszó (pl. "| 🛠️ • patch-notes")
+const KULCSSZAVAK = {
+  patch: ['patchnotes', 'patchnote', 'changelog'],
+  szabaly: ['szabályzat', 'szabalyzat', 'szabályok', 'rules'],
+  statusz: ['szerverstátusz', 'szerverstatusz', 'státusz', 'statusz', 'status'],
+  naplo: ['szervernapló', 'szervernaplo', 'napló', 'naplo'],
+  udvozles: ['üdvözlés', 'udvozles', 'welcome', 'üdv'],
+};
+const tisztit = (n) => n.toLowerCase().replace(/[^a-z0-9áéíóöőúüű]/g, '');
+
 function csatorna(guild, kulcs) {
+  const id = cfg.csatornak && cfg.csatornak[kulcs];
+  if (id) {
+    const c = guild.channels.cache.get(String(id));
+    if (c && c.isTextBased()) return c;
+  }
+  const szoveges = guild.channels.cache.filter((c) => c.isTextBased() && !c.isThread?.() && !c.isVoiceBased?.());
   const nev = setup.csatornaNev(kulcs);
-  return guild.channels.cache.find((c) => c.name === nev && c.isTextBased());
+  const pontos = szoveges.find((c) => c.name === nev);
+  if (pontos) return pontos;
+  for (const szo of KULCSSZAVAK[kulcs] || []) {
+    const c = szoveges.find((x) => tisztit(x.name).includes(szo));
+    if (c) return c;
+  }
+  return null;
 }
 
 // ---------------- élő státusz ----------------
@@ -585,7 +610,7 @@ async function ujTag(tag, teszt = false) {
   // üdvözlés
   const ch = csatorna(guild, 'udvozles');
   if (!ch) return;
-  const szab = guild.channels.cache.find((c) => c.name === setup.csatornaNev('szabaly'));
+  const szab = csatorna(guild, 'szabaly');
   const stat = csatorna(guild, 'statusz');
   const e = new EmbedBuilder()
     .setColor(SZIN)
