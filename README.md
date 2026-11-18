@@ -57,3 +57,11 @@ Naplót így nézhetsz: `pm2 logs shadowbot`
 - Új plugin: `shadow_discord.amxx`, ez gyűjti az eseményeket. Már benne van a `plugins-zplague.ini`-ben.
 - Frissült: `shadow_bans`, `shadow_gag`, `shadow_rangok`, `shadow_boss`, `shadow_rtv`. Ezek küldik az eseményeket a naplóba.
 - Ha a be- és kilépéseket is látni akarod a naplóban: `shadow_dc_belepes 1` (amxx.cfg-be).
+
+## Ha nem működnek a / parancsok
+1. Nézd meg a bot naplóját: `pm2 logs shadowbot --lines 50`
+   - **„Parancsok regisztrálva”**: a bot rendben van. Indítsd újra a Discordot (Ctrl+R vagy az app bezárása), és a parancsok megjelennek.
+   - **„Missing Access”**: hívd meg újra a botot a naplóban kiírt linkkel (abban benne van az `applications.commands`).
+   - **„a bot nincs bent a ... szerveren”**: rossz a `guildId`. A napló kiírja a jót, azt másold be.
+2. A `guildId` mindig idézőjelek között legyen: `"guildId": "123456789012345678"`.
+3. Frissítés után mindig: `git pull`, utána `pm2 restart shadowbot`.

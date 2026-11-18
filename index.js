@@ -24,6 +24,12 @@ if (!fs.existsSync(CONFIG_UT)) {
   process.exit(1);
 }
 const cfg = JSON.parse(fs.readFileSync(CONFIG_UT, 'utf8'));
+if (typeof cfg.guildId === 'number') {
+  console.error('HIBA: a config.json-ban a guildId-t idézőjelek közé kell írni, pl.: "guildId": "123456789012345678"');
+  process.exit(1);
+}
+cfg.guildId = String(cfg.guildId || '').trim();
+cfg.token = String(cfg.token || '').trim();
 const PREFIX = '[~*| SHADOW |*~]';
 const SZIN = 0xb00000;
 
@@ -173,6 +179,7 @@ const PARANCSOK = [
 
 client.on('interactionCreate', async (it) => {
   if (!it.isChatInputCommand()) return;
+  console.log(`/${it.commandName} - ${it.user.tag}`);
   try {
     if (it.commandName === 'ip') {
       return it.reply(`🌐 **${PREFIX}** zombi szerver: \`connect ${cim()}\`\nMásold be a CS konzolba (~ gomb)!`);
@@ -215,21 +222,43 @@ client.on('guildMemberAdd', async (tag) => {
   }
 });
 
-client.once('ready', async () => {
+// discord.js régebbi verziója "ready", az újabb "clientReady" eseményt küld - mindkettőt figyeljük
+let elindult = false;
+async function indulas() {
+  if (elindult) return;
+  elindult = true;
   console.log(`${PREFIX} bot elindult: ${client.user.tag}`);
-  try {
-    const rest = new REST({ version: '10' }).setToken(cfg.token);
-    await rest.put(Routes.applicationGuildCommands(client.user.id, cfg.guildId), { body: PARANCSOK });
-    console.log('Parancsok regisztrálva.');
-  } catch (e) {
-    console.error('Parancs regisztráció hiba:', e.message);
+
+  const guild = client.guilds.cache.get(cfg.guildId);
+  if (!guild) {
+    console.error('HIBA: a bot nincs bent a config.json-ban megadott szerveren (guildId).');
+    console.error('  Ezeken a szervereken van bent:');
+    client.guilds.cache.forEach((g) => console.error(`   - ${g.name}  ->  guildId: ${g.id}`));
+    console.error('  Javítsd a guildId-t, vagy hívd meg a botot a szerverre.');
   }
 
-  await client.guilds.cache.get(cfg.guildId)?.channels.fetch().catch(() => {});
+  const rest = new REST({ version: '10' }).setToken(cfg.token);
+  try {
+    // régi, globális parancsok törlése (ha volt), hogy ne legyen dupla
+    await rest.put(Routes.applicationCommands(client.user.id), { body: [] }).catch(() => {});
+    await rest.put(Routes.applicationGuildCommands(client.user.id, cfg.guildId), { body: PARANCSOK });
+    console.log(`Parancsok regisztrálva (${PARANCSOK.length} db): /szerver /jatekosok /ip /setup`);
+  } catch (e) {
+    console.error('HIBA a / parancsok regisztrálásánál:', e.message);
+    if (e.code === 50001 || /Missing Access/i.test(e.message)) {
+      console.error('  A bot meghívásakor nem volt bepipálva az "applications.commands" scope.');
+      console.error('  Hívd meg újra ezzel a linkkel (nem kell kirúgni):');
+      console.error(`  https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=8`);
+    }
+  }
+
+  await guild?.channels.fetch().catch(() => {});
   statuszFrissit();
   setInterval(statuszFrissit, Math.max(30, cfg.statuszMasodperc || 60) * 1000);
   setInterval(naploLekeres, Math.max(10, cfg.naploMasodperc || 15) * 1000);
-});
+}
+client.once('ready', indulas);
+client.once('clientReady', indulas);
 
 process.on('unhandledRejection', (e) => console.error('Hiba:', e?.message || e));
 client.login(cfg.token);
