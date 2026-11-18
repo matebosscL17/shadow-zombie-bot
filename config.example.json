@@ -1,0 +1,10 @@
+{
+  "token": "IDE_A_BOT_TOKENJE",
+  "guildId": "IDE_A_DISCORD_SZERVER_ID",
+  "szerverIp": "IDE_A_CS_SZERVER_IP",
+  "szerverPort": 27015,
+  "rconJelszo": "",
+  "statuszMasodperc": 60,
+  "naploMasodperc": 15,
+  "ujTagJatekosRang": true
+}

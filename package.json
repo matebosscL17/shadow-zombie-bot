@@ -1,0 +1,9 @@
+{
+  "name": "shadow-zombie-bot",
+  "version": "1.0.0",
+  "description": "[~*| SHADOW |*~] Discord bot a CS 1.6 Zombie Plague szerverhez",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" },
+  "dependencies": { "discord.js": "^14.16.3" },
+  "engines": { "node": ">=18" }
+}
