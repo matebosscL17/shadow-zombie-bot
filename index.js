@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, REST, Routes,
-  ActivityType,
+  ActivityType, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, PermissionFlagsBits,
 } = require('discord.js');
 const q = require('./lib/query');
 const setup = require('./lib/setup');
@@ -182,9 +182,79 @@ const PARANCSOK = [
   new SlashCommandBuilder().setName('jatekosok').setDescription('Kik vannak fent a zombi szerveren'),
   new SlashCommandBuilder().setName('ip').setDescription('A zombi szerver címe'),
   new SlashCommandBuilder().setName('setup').setDescription('Felépíti a Discord szervert: rangok, csatornák, jogok (csak a tulaj)'),
+  new SlashCommandBuilder().setName('patchnotes').setDescription('Patch Notes kiírása a CS 1.6 szerver frissítéseiről (Admin és fölötte)')
+    .addSubcommand((sc) => sc.setName('kuldes').setDescription('Egy kész Patch Notes kiküldése a patchnotes mappából')
+      .addStringOption((o) => o.setName('fajl').setDescription('Melyik Patch Notes (dátum)').setRequired(true).setAutocomplete(true)))
+    .addSubcommand((sc) => sc.setName('iras').setDescription('Új Patch Notes írása itt a Discordon')),
 ].map((c) => c.toJSON());
 
+// ---------------- Patch Notes ----------------
+const PATCH_MAPPA = path.join(__dirname, 'patchnotes');
+
+function patchFajlok() {
+  try {
+    return fs.readdirSync(PATCH_MAPPA).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3)).sort().reverse();
+  } catch (_) { return []; }
+}
+
+function joga(it) {
+  if (it.user.id === it.guild.ownerId) return true;
+  if (it.member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  return it.member.roles.cache.some((r) => ['👑 Tulajdonos', '🔱 Főadmin', '🛡️ Admin'].includes(r.name));
+}
+
+// a Discord egy üzenetben max 2000 karaktert enged: szakaszonként (## ) daraboljuk
+function darabol(szoveg) {
+  const sorok = szoveg.replace(/\r/g, '').split('\n');
+  const darabok = [];
+  let akt = '';
+  for (const sor of sorok) {
+    const uj = akt ? akt + '\n' + sor : sor;
+    if (uj.length > 1900 || (sor.startsWith('## ') && akt.length > 1200)) {
+      if (akt.trim()) darabok.push(akt);
+      akt = sor;
+    } else akt = uj;
+  }
+  if (akt.trim()) darabok.push(akt);
+  return darabok;
+}
+
+async function patchKuldes(guild, szoveg) {
+  const ch = csatorna(guild, 'patch');
+  if (!ch) throw new Error('Nincs meg a Patch Notes csatorna. Futtasd le a /setup-ot!');
+  for (const d of darabol(szoveg)) await ch.send({ content: d, allowedMentions: { parse: [] } });
+  return ch;
+}
+
 client.on('interactionCreate', async (it) => {
+  // Patch Notes fájl választó
+  if (it.isAutocomplete() && it.commandName === 'patchnotes') {
+    const keres = it.options.getFocused().toLowerCase();
+    return it.respond(patchFajlok().filter((f) => f.toLowerCase().includes(keres)).slice(0, 25)
+      .map((f) => ({ name: f, value: f }))).catch(() => {});
+  }
+
+  // Patch Notes írás ablak beküldése
+  if (it.isModalSubmit() && it.customId === 'patchnotes_iras') {
+    try {
+      const cim = it.fields.getTextInputValue('cim').trim();
+      const tartalom = it.fields.getTextInputValue('szoveg').trim();
+      const teljes = `# 🛠️ ${cim}\n\n${tartalom}\n`;
+      await it.deferReply({ ephemeral: true });
+      const ch = await patchKuldes(it.guild, teljes);
+      // elmentjük, hogy később újra ki lehessen küldeni
+      try {
+        fs.mkdirSync(PATCH_MAPPA, { recursive: true });
+        const nev = cim.replace(/[^0-9A-Za-z._-]+/g, '_').replace(/^_+|_+$/g, '') || String(Date.now());
+        fs.writeFileSync(path.join(PATCH_MAPPA, nev + '.md'), teljes);
+      } catch (_) {}
+      return it.editReply(`✅ Kiküldve ide: ${ch}`);
+    } catch (e) {
+      const uz = '❌ Hiba: ' + e.message;
+      return (it.deferred ? it.editReply(uz) : it.reply({ content: uz, ephemeral: true })).catch(() => {});
+    }
+  }
+
   if (!it.isChatInputCommand()) return;
   console.log(`/${it.commandName} - ${it.user.tag}`);
   try {
@@ -196,6 +266,28 @@ client.on('interactionCreate', async (it) => {
       await it.deferReply();
       const s = await lekerdez();
       return it.editReply({ embeds: [statuszEmbed(s)] });
+    }
+
+    if (it.commandName === 'patchnotes') {
+      if (!joga(it)) return it.reply({ content: '❌ Ezt csak az Admin és afölötti rang használhatja.', ephemeral: true });
+      if (it.options.getSubcommand() === 'iras') {
+        const ma = new Date();
+        const datum = `${ma.getFullYear()}.${String(ma.getMonth() + 1).padStart(2, '0')}.${String(ma.getDate()).padStart(2, '0')}`;
+        const modal = new ModalBuilder().setCustomId('patchnotes_iras').setTitle('Új Patch Notes').addComponents(
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('cim').setLabel('Cím')
+            .setStyle(TextInputStyle.Short).setValue(`Patch Notes ${datum}`).setMaxLength(80).setRequired(true)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('szoveg').setLabel('Mi változott a CS 1.6 szerveren?')
+            .setStyle(TextInputStyle.Paragraph).setMaxLength(4000).setRequired(true)
+            .setPlaceholder('## 🔫 Fegyverek - ÚJ\n* **Új fegyver:** ...\n\n## 🛠️ Javítások\n* ...')),
+        );
+        return it.showModal(modal);
+      }
+      const fajl = path.basename(it.options.getString('fajl'));
+      const ut = path.join(PATCH_MAPPA, fajl + '.md');
+      if (!fs.existsSync(ut)) return it.reply({ content: `❌ Nincs ilyen Patch Notes: ${fajl}`, ephemeral: true });
+      await it.deferReply({ ephemeral: true });
+      const ch = await patchKuldes(it.guild, fs.readFileSync(ut, 'utf8'));
+      return it.editReply(`✅ Kiküldve ide: ${ch}`);
     }
 
     if (it.commandName === 'setup') {

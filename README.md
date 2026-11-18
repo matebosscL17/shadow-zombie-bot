@@ -4,6 +4,8 @@
 - `/setup` – felépíti az egész Discord szervert: rangok, kategóriák, csatornák, jogok. Csak a szerver tulajdonosa használhatja. Többször is lefuttathatod, nem töröl semmit és nem csinál duplán.
 - `/szerver`, `/jatekosok` – a zombi szerver állapota, a pálya és kik vannak fent.
 - `/ip` – a szerver címe.
+- `/patchnotes kuldes` – egy kész Patch Notes kiküldése a `┃🛠️・patch-notes` csatornába (a `patchnotes` mappából, dátum szerint választható). Csak Admin és fölötte.
+- `/patchnotes iras` – új Patch Notes írása egy ablakban a Discordon. A bot kiküldi és el is menti.
 - **Élő státusz** a `┃🟢・szerver-státusz` csatornában. Percenként frissül, és a bot neve alatt is látszik, hányan vannak fent.
 - **Szerver napló** a `┃📋・szerver-napló` csatornában (csak a staff látja). Ide kerülnek a kitiltások, feloldások, némítások, rangadások, rangelvételek, a Boss pálya indulása, a pályaszavazás eredménye és a pálya betöltése.
 - **Új tagok:** a bot szép üdvözlő kártyát küld a `┃👋・üdvözlés` csatornába (profilkép, hányadik tag, szabályzat, szerver IP), és megadja az illő rangot:
