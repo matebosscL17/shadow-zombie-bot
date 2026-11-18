@@ -314,13 +314,57 @@ function darabol(szoveg) {
 }
 
 // ---------------- Szabályzat ----------------
-// A szabalyzat.md tartalmát írja ki. Ha már ki volt írva, a régi üzeneteket
-// átírja (nem lesz dupla), így a szabályzat mindig egy helyen, frissen van.
+// A szabalyzat.md-ből szép, színes kártyákat (embed) csinál: a "## " részek külön kártyák.
+// Ha már ki volt írva, a régi üzeneteket átírja (nem lesz dupla).
+const SZABALY_SZINEK = [0xb00000, 0xe67e22, 0x5865f2, 0x9b59b6, 0xe74c3c, 0x3498db, 0x2ecc71, 0xf1c40f, 0xff7a00, 0x992d22, 0x1abc9c];
+const SZABALY_VERZIO = 2;
+
+function szabalyKartyak() {
+  const nyers = fs.readFileSync(path.join(__dirname, 'szabalyzat.md'), 'utf8').replace(/\r/g, '').split(PREFIX).join(PREFIX_MD);
+  const reszek = nyers.split(/\n(?=## )/);
+  const fej = reszek.shift();
+  const fejSorok = fej.split('\n');
+  const cim = fejSorok[0].replace(/^#\s*/, '');
+
+  const kartyak = [];
+  kartyak.push(new EmbedBuilder()
+    .setColor(0xb00000)
+    .setTitle(cim)
+    .setDescription(fejSorok.slice(1).join('\n').trim() || '​')
+    .setImage(fs.existsSync(BANNER) ? 'attachment://shadow_banner.png' : null));
+
+  reszek.forEach((r, n) => {
+    const sorok = r.split('\n');
+    const rcim = sorok[0].replace(/^##\s*/, '');
+    let leiras = sorok.slice(1).join('\n').trim();
+    // a pontok közé egy kis levegő, hogy jobban olvasható legyen
+    leiras = leiras.replace(/\n(?=`\d+\.\d+`)/g, '\n\n');
+    const e = new EmbedBuilder().setColor(SZABALY_SZINEK[n % SZABALY_SZINEK.length]).setTitle(rcim)
+      .setDescription(leiras.slice(0, 4096) || '​');
+    kartyak.push(e);
+  });
+  const utolso = kartyak[kartyak.length - 1];
+  utolso.setFooter({ text: `${PREFIX} • Szabályzat` }).setTimestamp(new Date());
+  return kartyak;
+}
+
+// üzenetenként max 10 kártya és kb. 6000 karakter
+function kartyaCsoportok(kartyak) {
+  const csop = [];
+  let akt = [], hossz = 0;
+  for (const k of kartyak) {
+    const h = JSON.stringify(k.toJSON ? k.toJSON() : k).length;
+    if (akt.length && (akt.length >= 10 || hossz + h > 5500)) { csop.push(akt); akt = []; hossz = 0; }
+    akt.push(k); hossz += h;
+  }
+  if (akt.length) csop.push(akt);
+  return csop;
+}
+
 async function szabalyzatKuldes(guild) {
   const ch = csatorna(guild, 'szabaly');
   if (!ch) throw new Error('Nincs meg a szabályzat csatorna. Futtasd le a /setup-ot!');
-  const szoveg = fs.readFileSync(path.join(__dirname, 'szabalyzat.md'), 'utf8');
-  const darabok = darabol(szoveg);
+  const csoportok = kartyaCsoportok(szabalyKartyak());
 
   const regiek = [];
   for (const id of adat.szabalyUzenetek || []) {
@@ -328,18 +372,20 @@ async function szabalyzatKuldes(guild) {
     if (m) regiek.push(m);
   }
 
-  if (regiek.length === darabok.length) {
-    for (let i = 0; i < darabok.length; i++) await regiek[i].edit({ content: darabok[i], allowedMentions: { parse: [] } });
+  if (adat.szabalyVerzio === SZABALY_VERZIO && regiek.length === csoportok.length) {
+    for (let i = 0; i < csoportok.length; i++) await regiek[i].edit({ content: null, embeds: csoportok[i] });
     return { ch, uj: false };
   }
 
   for (const m of regiek) await m.delete().catch(() => {});
   const idk = [];
-  for (const d of darabok) {
-    const m = await ch.send({ content: d, allowedMentions: { parse: [] } });
+  for (let i = 0; i < csoportok.length; i++) {
+    const files = i === 0 && fs.existsSync(BANNER) ? [new AttachmentBuilder(BANNER, { name: 'shadow_banner.png' })] : [];
+    const m = await ch.send({ embeds: csoportok[i], files, allowedMentions: { parse: [] } });
     idk.push(m.id);
   }
   adat.szabalyUzenetek = idk;
+  adat.szabalyVerzio = SZABALY_VERZIO;
   mentes();
   return { ch, uj: true };
 }
