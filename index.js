@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, REST, Routes,
-  ActivityType, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, PermissionFlagsBits,
+  ActivityType, ModalBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder, escapeMarkdown, TextInputBuilder, TextInputStyle, ActionRowBuilder, PermissionFlagsBits,
 } = require('discord.js');
 const q = require('./lib/query');
 const setup = require('./lib/setup');
@@ -31,6 +31,9 @@ if (typeof cfg.guildId === 'number') {
 cfg.guildId = String(cfg.guildId || '').trim();
 cfg.token = String(cfg.token || '').trim();
 const PREFIX = '[~*| SHADOW |*~]';
+// Discordon a * dőlt betűt csinálna, ezért szövegben így kell írni
+const PREFIX_MD = '[~\\*| SHADOW |\\*~]';
+const BANNER = path.join(__dirname, 'kepek', 'shadow_banner.png');
 const SZIN = 0xb00000;
 
 let adat = {};
@@ -68,37 +71,99 @@ async function lekerdez() {
   }
 }
 
-function statuszEmbed(s) {
+// ---------------- státusz kártya ----------------
+const SZAMOK = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+const ermek = ['🥇', '🥈', '🥉'];
+
+function csik(akt, max, hossz = 10) {
+  const tele = max > 0 ? Math.round((akt / max) * hossz) : 0;
+  return '🟥'.repeat(Math.min(tele, hossz)) + '⬛'.repeat(Math.max(0, hossz - tele));
+}
+
+function nagySzam(n) {
+  return String(n).split('').map((c) => SZAMOK[+c] || c).join('');
+}
+
+// mai csúcs és rekord számolása
+function csucsFrissit(n) {
+  const ma = new Date().toISOString().slice(0, 10);
+  adat.csucs = adat.csucs || { nap: ma, ma: 0, rekord: 0 };
+  if (adat.csucs.nap !== ma) { adat.csucs.nap = ma; adat.csucs.ma = 0; }
+  let valt = false;
+  if (n > adat.csucs.ma) { adat.csucs.ma = n; valt = true; }
+  if (n > adat.csucs.rekord) { adat.csucs.rekord = n; valt = true; }
+  if (valt) mentes();
+  return adat.csucs;
+}
+
+function statuszEmbed(s, banner = true) {
   const e = new EmbedBuilder()
-    .setTitle(`${PREFIX} Zombi szerver`)
-    .setColor(s.online ? 0x2ecc71 : 0xe74c3c)
+    .setAuthor({ name: 'CS 1.6 • Zombie Plague • Élő státusz' })
+    .setTitle(`🧟 ${PREFIX_MD} ZOMBIE PLAGUE 🧟`)
     .setTimestamp(new Date())
-    .setFooter({ text: 'Frissítve' });
+    .setFooter({ text: `${PREFIX} • percenként frissül` });
+  if (banner && fs.existsSync(BANNER)) e.setImage('attachment://shadow_banner.png');
 
   if (!s.online) {
-    e.setDescription('🔴 **A szerver most nem elérhető.**\nPár perc múlva újra megnézem.');
-    e.addFields({ name: '🌐 IP', value: `\`connect ${cim()}\`` });
+    e.setColor(0x4f545c)
+      .setDescription([
+        '## 🔴 A szerver jelenleg OFFLINE',
+        'Valószínűleg újraindul vagy karbantartás van.',
+        'Pár perc múlva újra megnézem! ⏳',
+        '',
+        `**🌐 Cím:** \`${cim()}\``,
+      ].join('\n'));
     return e;
   }
 
-  const emberek = s.jatekos - (s.botok || 0);
-  e.setDescription(`🟢 **Online** — ${s.nev}`);
-  e.addFields(
-    { name: '🗺️ Pálya', value: `\`${s.palya}\``, inline: true },
-    { name: '👥 Játékosok', value: `**${emberek}/${s.max}**`, inline: true },
-    { name: '🌐 IP', value: `\`connect ${cim()}\``, inline: true },
-  );
+  const emberek = Math.max(0, s.jatekos - (s.botok || 0));
+  const cs = csucsFrissit(emberek);
+  const tele = emberek >= s.max;
+  const hangulat = emberek === 0 ? '😴 Most csendes... legyél te az első!'
+    : tele ? '🔥 TELE VAN! Siess, ha felszabadul egy hely!'
+      : emberek >= s.max / 2 ? '⚔️ Javában tart a harc!' : '🧟 Gyere, kell az erősítés!';
+
+  e.setColor(tele ? 0xff0000 : emberek ? 0xb00000 : 0x6b0000)
+    .setDescription([
+      `## 🟢 ONLINE  •  ${nagySzam(emberek)} / ${nagySzam(s.max)}`,
+      `${csik(emberek, s.max)}`,
+      `*${hangulat}*`,
+      '',
+      `**📡 Szerver:** ${escapeMarkdown(s.nev)}`,
+    ].join('\n'))
+    .setThumbnail(`https://image.gametracker.com/images/maps/160x120/cs/${encodeURIComponent(s.palya)}.jpg`)
+    .addFields(
+      { name: '🗺️ Pálya', value: `\`\`\`${s.palya}\`\`\``, inline: true },
+      { name: '👥 Játékosok', value: `\`\`\`${emberek} / ${s.max}\`\`\``, inline: true },
+      { name: '📈 Mai csúcs / Rekord', value: `\`\`\`${cs.ma} / ${cs.rekord}\`\`\``, inline: true },
+      { name: '🎮 Csatlakozás (másold a CS konzolba)', value: `\`\`\`connect ${cim()}\`\`\`` },
+    );
 
   if (s.lista.length) {
-    const sorok = s.lista.slice(0, 20).map((p, n) =>
-      `${String(n + 1).padStart(2)}. ${p.nev.slice(0, 22).padEnd(22)} ${String(p.pont).padStart(4)}  ${idoSzoveg(p.ido)}`);
+    const sorok = s.lista.slice(0, 15).map((p, n) => {
+      const hely = ermek[n] || `\`${String(n + 1).padStart(2)}.\``;
+      return `${hely} **${escapeMarkdown(p.nev.slice(0, 24))}** — ${p.pont} pont • ${idoSzoveg(p.ido)}`;
+    });
+    if (s.lista.length > 15) sorok.push(`*... és még ${s.lista.length - 15} játékos*`);
     let szoveg = sorok.join('\n');
-    if (s.lista.length > 20) szoveg += `\n... és még ${s.lista.length - 20} játékos`;
-    e.addFields({ name: '🧟 Fent vannak (név / pont / idő)', value: '```' + szoveg + '```' });
+    if (szoveg.length > 1024) szoveg = szoveg.slice(0, 1000) + '\n*...*';
+    e.addFields({ name: `🏆 Ranglista (${s.lista.length} fő)`, value: szoveg });
   } else {
-    e.addFields({ name: '🧟 Fent vannak', value: 'Most senki sincs fent. Gyere, legyél az első! 🧟' });
+    e.addFields({ name: '🏆 Ranglista', value: '*Most senki sincs fent. Gyere, legyél az első! 🧟*' });
   }
   return e;
+}
+
+function statuszGombok(guild) {
+  const sor = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Statisztika').setEmoji('📊')
+      .setURL(`https://www.gametracker.com/server_info/${cim()}/`),
+  );
+  const szab = csatorna(guild, 'szabaly');
+  if (szab) sor.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Szabályzat').setEmoji('📜').setURL(szab.url));
+  const patch = csatorna(guild, 'patch');
+  if (patch) sor.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Patch Notes').setEmoji('🛠️').setURL(patch.url));
+  return [sor];
 }
 
 function csatorna(guild, kulcs) {
@@ -120,13 +185,21 @@ async function statuszFrissit() {
   const ch = csatorna(guild, 'statusz');
   if (!ch) return;
   const embed = statuszEmbed(s);
+  const components = statuszGombok(guild);
   try {
     if (adat.statuszUzenet) {
       const m = await ch.messages.fetch(adat.statuszUzenet).catch(() => null);
-      if (m) { await m.edit({ embeds: [embed] }); return; }
+      if (m && adat.statuszVerzio === 2) {
+        // a kép a régi üzeneten marad, nem kell újra feltölteni
+        await m.edit({ embeds: [embed], components });
+        return;
+      }
+      if (m) await m.delete().catch(() => {}); // régi kinézetű üzenet -> újat küldünk
     }
-    const m = await ch.send({ embeds: [embed] });
+    const files = fs.existsSync(BANNER) ? [new AttachmentBuilder(BANNER, { name: 'shadow_banner.png' })] : [];
+    const m = await ch.send({ embeds: [embed], components, files });
     adat.statuszUzenet = m.id;
+    adat.statuszVerzio = 2;
     mentes();
   } catch (e) {
     console.error('Státusz hiba:', e.message);
@@ -305,13 +378,13 @@ client.on('interactionCreate', async (it) => {
   console.log(`/${it.commandName} - ${it.user.tag}`);
   try {
     if (it.commandName === 'ip') {
-      return it.reply(`🌐 **${PREFIX}** zombi szerver: \`connect ${cim()}\`\nMásold be a CS konzolba (~ gomb)!`);
+      return it.reply(`🌐 **${PREFIX_MD}** zombie szerver: \`connect ${cim()}\`\nMásold be a CS konzolba (~ gomb)!`);
     }
 
     if (it.commandName === 'szerver' || it.commandName === 'jatekosok') {
       await it.deferReply();
       const s = await lekerdez();
-      return it.editReply({ embeds: [statuszEmbed(s)] });
+      return it.editReply({ embeds: [statuszEmbed(s, false)], components: statuszGombok(it.guild) });
     }
 
     if (it.commandName === 'szabalyzat') {
@@ -415,7 +488,7 @@ client.on('guildMemberAdd', async (tag) => {
   const stat = csatorna(guild, 'statusz');
   const e = new EmbedBuilder()
     .setColor(SZIN)
-    .setTitle(regi ? `👋 Üdv újra itthon, ${tag.user.username}!` : `🧟 Üdv a ${PREFIX} közösségben!`)
+    .setTitle(regi ? `👋 Üdv újra itthon, ${tag.user.username}!` : `🧟 Üdv a ${PREFIX_MD} közösségben!`)
     .setDescription(regi
       ? `${tag} visszatért! Visszakaptad a régi rangjaidat. 💪`
       : `Szia ${tag}! Örülünk, hogy itt vagy! 🎉\nTe vagy a(z) **${guild.memberCount}.** tagunk.`)
