@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, REST, Routes,
-  ActivityType, ModalBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder, escapeMarkdown, TextInputBuilder, TextInputStyle, ActionRowBuilder, PermissionFlagsBits,
+  ActivityType, Events, ModalBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder, escapeMarkdown, TextInputBuilder, TextInputStyle, ActionRowBuilder, PermissionFlagsBits,
 } = require('discord.js');
 const q = require('./lib/query');
 const setup = require('./lib/setup');
@@ -605,6 +605,48 @@ async function rangokPotlasa(guild) {
 
 // discord.js régebbi verziója "ready", az újabb "clientReady" eseményt küld - mindkettőt figyeljük
 let elindult = false;
+// ---------------- tartalom frissítése a GitHubról ----------------
+// A Patch Notes-ok, a szabályzat és a banner a GitHub repóból jönnek, így
+// hosztingon (pl. bot-hosting.net) sem kell őket kézzel feltölteni.
+const GITHUB_REPO = cfg.githubRepo || 'matebosscL17/shadow-zombie-bot';
+
+async function letolt(url) {
+  const r = await fetch(url, { headers: { 'User-Agent': 'shadow-zombie-bot' } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return Buffer.from(await r.arrayBuffer());
+}
+
+async function tartalomFrissites() {
+  if (cfg.githubFrissites === false || typeof fetch !== 'function') return;
+  const raw = `https://raw.githubusercontent.com/${GITHUB_REPO}/main`;
+  let uj = 0;
+  try {
+    // Patch Notes mappa
+    const r = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/patchnotes`, { headers: { 'User-Agent': 'shadow-zombie-bot' } });
+    if (r.ok) {
+      const lista = await r.json();
+      fs.mkdirSync(PATCH_MAPPA, { recursive: true });
+      for (const f of lista) {
+        if (!f.name.endsWith('.md')) continue;
+        const ut = path.join(PATCH_MAPPA, f.name);
+        const tart = await letolt(`${raw}/patchnotes/${encodeURIComponent(f.name)}`);
+        if (!fs.existsSync(ut) || !fs.readFileSync(ut).equals(tart)) { fs.writeFileSync(ut, tart); uj++; }
+      }
+    }
+    // szabályzat és banner
+    for (const [rel, ut] of [['szabalyzat.md', path.join(__dirname, 'szabalyzat.md')], ['kepek/shadow_banner.png', BANNER]]) {
+      try {
+        const tart = await letolt(`${raw}/${rel}`);
+        fs.mkdirSync(path.dirname(ut), { recursive: true });
+        if (!fs.existsSync(ut) || !fs.readFileSync(ut).equals(tart)) { fs.writeFileSync(ut, tart); uj++; }
+      } catch (_) {}
+    }
+    console.log(`GitHub frissítés kész (${uj} új/változott fájl). Patch Notes: ${patchFajlok().join(', ') || 'nincs'}`);
+  } catch (e) {
+    console.error('GitHub frissítés hiba:', e.message);
+  }
+}
+
 async function indulas() {
   if (elindult) return;
   elindult = true;
@@ -638,6 +680,8 @@ async function indulas() {
   }
 
   await guild?.channels.fetch().catch(() => {});
+  await tartalomFrissites();
+  setInterval(tartalomFrissites, 30 * 60 * 1000); // félóránként
   // tagok betöltése, hogy kilépéskor tudjuk a rangjaikat
   if (VAN_TAG_INTENT) {
     await guild?.members.fetch().catch(() => {});
@@ -652,8 +696,8 @@ async function indulas() {
   setInterval(statuszFrissit, Math.max(30, cfg.statuszMasodperc || 60) * 1000);
   setInterval(naploLekeres, Math.max(10, cfg.naploMasodperc || 15) * 1000);
 }
-client.once('ready', indulas);
-client.once('clientReady', indulas);
+// a discord.js verziójának megfelelő nevet használja (ready / clientReady)
+client.once(Events.ClientReady || 'ready', indulas);
 
 process.on('unhandledRejection', (e) => console.error('Hiba:', e?.message || e));
 // új szerverre meghívva is kapjon parancsokat

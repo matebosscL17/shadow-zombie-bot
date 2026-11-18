@@ -77,3 +77,8 @@ Naplót így nézhetsz: `pm2 logs shadowbot`
    - **„a bot nincs bent a ... szerveren”**: rossz a `guildId`. A napló kiírja a jót, azt másold be.
 2. A `guildId` mindig idézőjelek között legyen: `"guildId": "123456789012345678"`.
 3. Frissítés után mindig: `git pull`, utána `pm2 restart shadowbot`.
+
+## Hosztingon (pl. bot-hosting.net)
+- Töltsd fel: `index.js`, `lib/`, `package.json`, `config.json`. Indító fájl: `index.js`.
+- A **Patch Notes-okat, a szabályzatot és a bannert a bot magától letölti a GitHubról** induláskor és félóránként, ezeket nem kell kézzel feltölteni. Ha új Patch Notes kerül a GitHubra, pár percen belül ott lesz a `/patchnotes kuldes` listában.
+- Kikapcsolás: a `config.json`-ba `"githubFrissites": false`.
