@@ -522,7 +522,7 @@ async function osszekotesPanel(guild) {
   return panel(guild, 'osszekotes', { embeds: [e], components: [sor] });
 }
 
-const UTMUTATO_VERZIO = 1;
+const UTMUTATO_VERZIO = 2;
 async function utmutatoPanel(guild) {
   const osz = csatorna(guild, 'osszekotes');
   const kartyak = [
@@ -547,6 +547,7 @@ async function utmutatoPanel(guild) {
         '',
         '**Szint és ranglista**',
         '`/szint` – a szinted és XP-d  •  `/topszint` – legjobbak',
+        '`/granat` – gránát módok  •  **jobb klikk** gránáttal – mód váltás',
         '`/heti` – e heti eredményed  •  `/hh` – mikor van Happy Hour',
         '',
         '**Egyéb**',
@@ -560,6 +561,7 @@ async function utmutatoPanel(guild) {
         { name: '🔥 Happy Hour', value: 'Hétköznap **20:00–22:00** és **hétvégén egész nap**: dupla LCS és dupla XP!' },
         { name: '🏆 Kör legjobbjai', value: 'A legjobb ember (sebzés) és a legjobb zombi (fertőzés) minden kör végén **+5 LCS**-t kap. Hétfőnként heti ranglista itt a Discordon.' },
         { name: '❤️ HP és páncél', value: 'A boltban az ember **200 HP**-t (max 5×) és **páncélt**, a zombi **1250 HP**-t (max 15×) vehet körönként.' },
+        { name: '💣 Gránát módok', value: 'Gránáttal a kezedben a **jobb klikk** váltja: **Normál** • **Ütközéses** (becsapódásra robban) • **Közelségi** (ha ellenség megy a közelébe) • **Lézeres** (falra tapad, a lézeren átmenő ellenség felrobbantja). Tűz-, fagyasztó gránát és fertőző bomba is tudja.' },
         { name: '👹 Boss pálya', value: 'Időnként Boss pálya jön: mindenki együtt harcol egy óriás szörny ellen!' },
       ),
     new EmbedBuilder().setColor(0x1abc9c).setTitle('🤖 Discord parancsok')
