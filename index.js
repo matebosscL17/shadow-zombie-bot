@@ -192,6 +192,12 @@ const KULCSSZAVAK = {
 const tisztit = (n) => n.toLowerCase().replace(/[^a-z0-9áéíóöőúüű]/g, '');
 
 function csatorna(guild, kulcs) {
+  // kézzel kiválasztott csatorna (pl. /patchnotes zenek csatorna:#...)
+  const kezi = adat.csatornaKezi && adat.csatornaKezi[kulcs];
+  if (kezi) {
+    const c = guild.channels.cache.get(String(kezi));
+    if (c && c.isTextBased()) return c;
+  }
   const id = cfg.csatornak && cfg.csatornak[kulcs];
   if (id) {
     const c = guild.channels.cache.get(String(id));
@@ -740,7 +746,8 @@ const PARANCSOK = [
     .addSubcommand((sc) => sc.setName('iras').setDescription('Új Patch Notes írása itt a Discordon'))
     .addSubcommand((sc) => sc.setName('frissites').setDescription('Most rögtön megnézi a GitHubot, és kiküldi az új Patch Notes-okat'))
     .addSubcommand((sc) => sc.setName('zenek').setDescription('Kiküldi a Patch Notes csatornába a "zenek" mappa még ki nem küldött zenéit')
-      .addBooleanOption((o) => o.setName('ujra').setDescription('A már kiküldötteket is újra küldje').setRequired(false))),
+      .addBooleanOption((o) => o.setName('ujra').setDescription('A már kiküldötteket is újra küldje').setRequired(false))
+      .addChannelOption((o) => o.setName('csatorna').setDescription('Melyik a Patch Notes csatorna (a bot megjegyzi)').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(false))),
   new SlashCommandBuilder().setName('udvozles-teszt').setDescription('Kipróbálja az üdvözlést és a rangadást rajtad (Admin és fölötte)'),
   new SlashCommandBuilder().setName('szabalyzat').setDescription('Kiírja / frissíti a szabályzatot a szabályzat csatornában (Admin és fölötte)'),
 ].map((c) => c.toJSON());
@@ -918,9 +925,12 @@ async function zenekKuldese(ch, kulcs, zenek, fejlec, mindenkepp = false) {
   // amit már bárhol kiküldtünk, azt nem küldjük újra (csak ha kézzel kérik)
   const kell = mindenkepp ? zenek : zenek.filter((z) => !adat.zeneKuldve.some((k) => k.endsWith('|' + z.fajl)));
   const van = kell.map((z) => ({ z, a: zeneCsatolmany(z) })).filter((x) => x.a);
+  const uzenetek = [];
   for (let i = 0; i < van.length; i += 10) {
     const csomag = van.slice(i, i + 10);
-    await ch.send({ content: i === 0 ? fejlec : null, files: csomag.map((x) => x.a), allowedMentions: { parse: [] } });
+    const m = await ch.send({ content: i === 0 ? fejlec : null, files: csomag.map((x) => x.a), allowedMentions: { parse: [] } });
+    uzenetek.push(m);
+    console.log(`Zenék kiküldve ide: #${ch.name} (${csomag.map((x) => x.z.fajl).join(', ')})`);
     for (const x of csomag) if (!adat.zeneKuldve.includes(`${kulcs}|${x.z.fajl}`)) adat.zeneKuldve.push(`${kulcs}|${x.z.fajl}`);
     mentes();
   }
@@ -928,6 +938,7 @@ async function zenekKuldese(ch, kulcs, zenek, fejlec, mindenkepp = false) {
   const ujHiany = hianyzik.filter((z) => !zeneHianyLogolva.has(z.fajl));
   ujHiany.forEach((z) => zeneHianyLogolva.add(z.fajl));
   if (ujHiany.length) console.log(`Patch Notes zene hiányzik a "zenek" mappából: ${ujHiany.map((z) => z.fajl).join(', ')} (töltsd fel a bot "zenek" mappájába)`);
+  zenekKuldese.utolso = uzenetek;
   return van.length;
 }
 
@@ -961,9 +972,16 @@ async function zenekKezzel(guild, ujra) {
   adat.zeneKuldve = adat.zeneKuldve || [];
   const kuldott = (f) => adat.zeneKuldve.some((k) => k.endsWith('|' + f));
   const kell = lista.filter((f) => ujra || !kuldott(f)).map((f) => ({ fajl: f, nev: nevek[f] || f.replace(/\.mp3$/i, '').replace(/_/g, ' ') }));
-  if (!kell.length) return `ℹ️ Mind a ${lista.length} zene ki van már küldve. Újraküldés: \`/patchnotes zenek ujra:True\``;
+  if (!kell.length) return `ℹ️ Mind a ${lista.length} zene ki van már küldve ide: ${ch} (**#${ch.name}**).\nÚjraküldés: \`/patchnotes zenek ujra:True\` – más csatornába: \`/patchnotes zenek ujra:True csatorna:#a-jó-csatorna\``;
   const db = await zenekKuldese(ch, '__zenek', kell, '🎧 **Hallgasd meg az új körvégi zenéket:**', ujra);
-  return `✅ Kiküldve ${db} zene ide: ${ch}`;
+  const link = (zenekKuldese.utolso || [])[0];
+  return [
+    `✅ Kiküldve **${db}** zene ide: ${ch} (**#${ch.name}**)`,
+    link ? `👉 [Ugrás az üzenethez](${link.url})` : '',
+    `🎵 ${kell.map((z) => z.nev).join(', ')}`,
+    '',
+    'Ha nem ez a jó csatorna: `/patchnotes zenek ujra:True csatorna:#a-jó-csatorna` – a bot megjegyzi, és a Patch Notes-ot is oda küldi.',
+  ].filter((x) => x !== null).join('\n');
 }
 
 // a korábban kiküldött Patch Notes-okhoz utólag feltöltött zenék
@@ -1095,6 +1113,8 @@ client.on('interactionCreate', async (it) => {
       }
       if (it.options.getSubcommand() === 'zenek') {
         await it.deferReply({ ephemeral: true });
+        const valasztott = it.options.getChannel('csatorna');
+        if (valasztott) { adat.csatornaKezi = adat.csatornaKezi || {}; adat.csatornaKezi.patch = valasztott.id; mentes(); }
         return it.editReply(await zenekKezzel(it.guild, it.options.getBoolean('ujra') === true));
       }
       if (it.options.getSubcommand() === 'iras') {
