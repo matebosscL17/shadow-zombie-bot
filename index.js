@@ -738,7 +738,9 @@ const PARANCSOK = [
     .addSubcommand((sc) => sc.setName('kuldes').setDescription('Egy kész Patch Notes kiküldése a patchnotes mappából')
       .addStringOption((o) => o.setName('fajl').setDescription('Melyik Patch Notes (ha üresen hagyod: a legújabb)').setRequired(false).setAutocomplete(true)))
     .addSubcommand((sc) => sc.setName('iras').setDescription('Új Patch Notes írása itt a Discordon'))
-    .addSubcommand((sc) => sc.setName('frissites').setDescription('Most rögtön megnézi a GitHubot, és kiküldi az új Patch Notes-okat')),
+    .addSubcommand((sc) => sc.setName('frissites').setDescription('Most rögtön megnézi a GitHubot, és kiküldi az új Patch Notes-okat'))
+    .addSubcommand((sc) => sc.setName('zenek').setDescription('Kiküldi a Patch Notes csatornába a "zenek" mappa még ki nem küldött zenéit')
+      .addBooleanOption((o) => o.setName('ujra').setDescription('A már kiküldötteket is újra küldje').setRequired(false))),
   new SlashCommandBuilder().setName('udvozles-teszt').setDescription('Kipróbálja az üdvözlést és a rangadást rajtad (Admin és fölötte)'),
   new SlashCommandBuilder().setName('szabalyzat').setDescription('Kiírja / frissíti a szabályzatot a szabályzat csatornában (Admin és fölötte)'),
 ].map((c) => c.toJSON());
@@ -911,14 +913,15 @@ function zeneCsatolmany(z) {
 }
 
 // kiküldi a még ki nem küldött (de már feltöltött) zenéket; visszaadja, hányat küldött
-async function zenekKuldese(ch, kulcs, zenek, fejlec) {
+async function zenekKuldese(ch, kulcs, zenek, fejlec, mindenkepp = false) {
   adat.zeneKuldve = adat.zeneKuldve || [];
-  const kell = zenek.filter((z) => !adat.zeneKuldve.includes(`${kulcs}|${z.fajl}`));
+  // amit már bárhol kiküldtünk, azt nem küldjük újra (csak ha kézzel kérik)
+  const kell = mindenkepp ? zenek : zenek.filter((z) => !adat.zeneKuldve.some((k) => k.endsWith('|' + z.fajl)));
   const van = kell.map((z) => ({ z, a: zeneCsatolmany(z) })).filter((x) => x.a);
   for (let i = 0; i < van.length; i += 10) {
     const csomag = van.slice(i, i + 10);
     await ch.send({ content: i === 0 ? fejlec : null, files: csomag.map((x) => x.a), allowedMentions: { parse: [] } });
-    for (const x of csomag) adat.zeneKuldve.push(`${kulcs}|${x.z.fajl}`);
+    for (const x of csomag) if (!adat.zeneKuldve.includes(`${kulcs}|${x.z.fajl}`)) adat.zeneKuldve.push(`${kulcs}|${x.z.fajl}`);
     mentes();
   }
   const hianyzik = kell.filter((z) => !van.find((x) => x.z === z));
@@ -934,10 +937,33 @@ async function patchKuldes(guild, szoveg, kulcs = null) {
   const { tiszta, zenek } = zeneSorok(szoveg);
   for (const d of darabol(tiszta)) await ch.send({ content: d, allowedMentions: { parse: [] } });
   if (zenek.length) {
-    if (!kulcs) adat.zeneKuldve = (adat.zeneKuldve || []).filter((k) => !k.startsWith('__kezi|'));
-    await zenekKuldese(ch, kulcs || '__kezi', zenek, '🎧 **Hallgasd meg az új zenéket:**').catch((e) => console.error('Zene küldési hiba:', e.message));
+    await zenekKuldese(ch, kulcs || '__kezi', zenek, '🎧 **Hallgasd meg az új zenéket:**', !kulcs).catch((e) => console.error('Zene küldési hiba:', e.message));
   }
   return ch;
+}
+
+function zeneMappaLista() {
+  try { return fs.readdirSync(ZENE_MAPPA).filter((f) => f.toLowerCase().endsWith('.mp3')).sort(); } catch (_) { return null; }
+}
+
+// /patchnotes zenek: a zenek mappa még ki nem küldött zenéi (szép névvel, ha valamelyik Patch Notes-ban szerepel)
+async function zenekKezzel(guild, ujra) {
+  const ch = csatorna(guild, 'patch');
+  if (!ch) return '❌ Nincs meg a Patch Notes csatorna.';
+  const P = PermissionFlagsBits;
+  const jog = ch.permissionsFor(guild.members.me);
+  if (!jog?.has(P.SendMessages) || !jog?.has(P.AttachFiles)) return `❌ A botnak nincs joga fájlt küldeni ide: ${ch}\nAdd meg neki a **Fájlok csatolása** (Attach Files) jogot ebben a csatornában.`;
+  const lista = zeneMappaLista();
+  if (lista === null) return `❌ Nincs **zenek** mappa a bot mellett.\nA bot-hosting.net fájlkezelőjében a \`bot_zenek.zip\`-et ott csomagold ki, ahol az \`index.js\` van (így lesz egy \`zenek\` mappa).\n(Keresett hely: \`${ZENE_MAPPA}\`)`;
+  if (!lista.length) return '❌ A **zenek** mappa üres, nincs benne mp3.';
+  const nevek = {};
+  for (const f of patchFajlok()) for (const z of zeneSorok(patchSzoveg(f) || '').zenek) nevek[z.fajl] = z.nev;
+  adat.zeneKuldve = adat.zeneKuldve || [];
+  const kuldott = (f) => adat.zeneKuldve.some((k) => k.endsWith('|' + f));
+  const kell = lista.filter((f) => ujra || !kuldott(f)).map((f) => ({ fajl: f, nev: nevek[f] || f.replace(/\.mp3$/i, '').replace(/_/g, ' ') }));
+  if (!kell.length) return `ℹ️ Mind a ${lista.length} zene ki van már küldve. Újraküldés: \`/patchnotes zenek ujra:True\``;
+  const db = await zenekKuldese(ch, '__zenek', kell, '🎧 **Hallgasd meg az új körvégi zenéket:**', ujra);
+  return `✅ Kiküldve ${db} zene ide: ${ch}`;
 }
 
 // a korábban kiküldött Patch Notes-okhoz utólag feltöltött zenék
@@ -949,7 +975,7 @@ async function patchZenekPotlasa(guild) {
     const { tiszta, zenek } = zeneSorok(patchSzoveg(f) || '');
     if (!zenek.length) continue;
     const cim = (tiszta.split('\n').find((l) => l.startsWith('#')) || f).replace(/^#+\s*/, '');
-    await zenekKuldese(ch, f, zenek, `🎧 **${cim}** – hallgasd meg az új zenéket:`).catch((e) => console.error('Zene küldési hiba:', e.message));
+    await zenekKuldese(ch, f, zenek, `🎧 **${cim}** – hallgasd meg az új zenéket:`).catch((e) => console.error('Zene küldési hiba (kell a botnak a Fájlok csatolása jog a Patch Notes csatornában):', e.message));
   }
 }
 
@@ -1066,6 +1092,10 @@ client.on('interactionCreate', async (it) => {
         return it.editReply(kiment && kiment.length
           ? `✅ Kiküldve: ${kiment.map((f) => '`' + f + '`').join(', ')}`
           : `ℹ️ Nincs új Patch Notes. A botnál ezek vannak: ${lista.map((f) => '`' + f + '`').join(', ') || 'egy sem'}\nHa valamelyik nem ment ki, küldd ki kézzel: \`/patchnotes kuldes\``);
+      }
+      if (it.options.getSubcommand() === 'zenek') {
+        await it.deferReply({ ephemeral: true });
+        return it.editReply(await zenekKezzel(it.guild, it.options.getBoolean('ujra') === true));
       }
       if (it.options.getSubcommand() === 'iras') {
         const ma = new Date();
@@ -1242,7 +1272,7 @@ async function tartalomFrissites() {
       if (!nev.endsWith('.md')) continue;
       const ut = path.join(PATCH_MAPPA, path.basename(nev));
       try {
-        const tart = await letolt(`${raw}/patchnotes/${encodeURIComponent(nev)}`);
+        const tart = await letolt(`${raw}/patchnotes/${encodeURIComponent(nev)}?t=${Date.now()}`); // ?t= : ne a régi (cache-elt) változat jöjjön
         if (!fs.existsSync(ut) || !fs.readFileSync(ut).equals(tart)) { fs.writeFileSync(ut, tart); uj++; }
       } catch (e) {
         console.error(`Patch Notes letöltési hiba (${nev}):`, e.message);
@@ -1334,6 +1364,8 @@ async function indulas() {
   }
 
   await guild?.channels.fetch().catch(() => {});
+  const zl = zeneMappaLista();
+  console.log(zl === null ? `Zenék: nincs "zenek" mappa (${ZENE_MAPPA})` : `Zenék: ${zl.length} mp3 a "zenek" mappában`);
   await tartalomFrissites();
   setInterval(tartalomFrissites, 10 * 60 * 1000); // 10 percenként
   if (guild) {
