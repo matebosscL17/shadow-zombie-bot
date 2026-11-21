@@ -93,4 +93,14 @@ Naplót így nézhetsz: `pm2 logs shadowbot`
 - A CS szerver `shadow_happyhour.amxx` pluginja dupla LCS-t ad (hétköznap 20–22, hétvégén egész nap). A bot a **hírek / bejelentések** csatornába kiírja, amikor kezdődik és amikor véget ér.
 - A `shadow_mvp.amxx` számolja a heti statisztikát. A bot **minden hétfőn 12 órától** kiteszi a múlt hét legjobbjait az **eredmények / ranglista** csatornába (`config.json` → `"hetiOra": 12`).
 - `/heti` – az e heti vagy a múlt heti ranglista bármikor.
+- `/osszekotes` – 6 jegyű kódot ad (10 percig jó). A játékban: `/discord <kód>` → a Discord fiók össze van kötve a Steam fiókkal.
+- `/levalasztas` – megszünteti az összekötést.
+- `/profil [tag]` – játékbeli szint, XP, helyezés és rang.
+- `/szintek` – a 10 legmagasabb szintű játékos.
+
+### Rang szinkron
+Összekötés után a játékbeli rang magától megjelenik a Discordon (30 mp-enként figyeli a szerver):
+VIP → 💎 VIP, Moderátor → ⚔️ Moderátor, Admin → 🛡️ Admin, Főadmin → 🔱 Főadmin.
+A 👑 Tulajdonos rangot a bot **soha** nem adja magától. Kikapcsolás: `"rangSzinkron": false` a config.json-ban.
+Ehhez is kell az `rconJelszo`, és a bot rangja legyen a többi rang **felett**.
 - Mindkettőhöz kell az `rconJelszo` a `config.json`-ban.

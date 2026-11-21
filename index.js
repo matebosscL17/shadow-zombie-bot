@@ -245,7 +245,6 @@ async function naploLekeres() {
   const guild = client.guilds.cache.get(cfg.guildId);
   if (!guild) return;
   const ch = csatorna(guild, 'naplo');
-  if (!ch) return;
 
   let szoveg;
   try {
@@ -263,7 +262,7 @@ async function naploLekeres() {
   if (!szoveg.includes('SDC_VEGE')) {
     if (!adat.pluginFigyelmeztetes) {
       adat.pluginFigyelmeztetes = true; mentes();
-      await ch.send('⚠️ A szerveren nem fut a `shadow_discord.amxx` plugin, ezért nincs mit kiírni. Tedd fel, és írd be a plugins-zplague.ini-be.').catch(() => {});
+      if (ch) await ch.send('⚠️ A szerveren nem fut a `shadow_discord.amxx` plugin, ezért nincs mit kiírni. Tedd fel, és írd be a plugins-zplague.ini-be.').catch(() => {});
     }
     return;
   }
@@ -283,8 +282,14 @@ async function naploLekeres() {
     } else console.error('Bejelentés: nincs meg a csatorna (hírek / bejelentések):', pub.join(' | '));
   }
 
+  // Discord összekötés (SDCL) és rang változás (SDCR)
+  for (const l of szoveg.split('\n')) {
+    if (l.startsWith('SDCL|')) await osszekotesJott(guild, l.trim().split('|')).catch((e) => console.error('Összekötés hiba:', e.message));
+    else if (l.startsWith('SDCR|')) await rangJott(guild, l.trim().split('|')).catch((e) => console.error('Rang szinkron hiba:', e.message));
+  }
+
   const sorok = szoveg.split('\n').filter((l) => l.startsWith('SDC|')).map((l) => l.slice(4).trim());
-  if (!sorok.length) return;
+  if (!sorok.length || !ch) return;
 
   // max 2000 karakteres üzenetekben
   let darab = '';
@@ -293,6 +298,85 @@ async function naploLekeres() {
     darab += s + '\n';
   }
   if (darab) await ch.send({ content: darab, allowedMentions: { parse: [] } }).catch(() => {});
+}
+
+// ---------------- Discord <-> játék összekötés ----------------
+// Discordon: /osszekotes -> 6 jegyű kód. Játékban: /discord <kód>.
+// Utána a játékbeli rang (VIP, Moderátor, Admin, Főadmin) magától megjelenik a Discordon.
+// A 👑 Tulajdonos rangot a bot SOHA nem adja magától.
+const RANG_SZEREP = { vip: '💎 VIP', moderator: '⚔️ Moderátor', admin: '🛡️ Admin', foadmin: '🔱 Főadmin' };
+const RANG_NEV = { tulaj: 'Tulaj', foadmin: 'Főadmin', admin: 'Admin', moderator: 'Moderátor', vip: 'VIP', nincs: 'Játékos' };
+
+function ujKod(userId) {
+  adat.kodok = adat.kodok || {};
+  const most = Date.now();
+  for (const [k, v] of Object.entries(adat.kodok)) if (v.lejar < most || v.user === userId) delete adat.kodok[k];
+  let kod;
+  do { kod = String(Math.floor(100000 + Math.random() * 900000)); } while (adat.kodok[kod]);
+  adat.kodok[kod] = { user: userId, lejar: most + 10 * 60 * 1000 };
+  mentes();
+  return kod;
+}
+
+async function rangBeallit(guild, userId, rang) {
+  if (cfg.rangSzinkron === false) return;
+  const tag = await guild.members.fetch(userId).catch(() => null);
+  if (!tag) return;
+  await guild.roles.fetch().catch(() => {});
+  const me = guild.members.me;
+  const kell = RANG_SZEREP[rang] || null;
+  // Tulaj a játékban -> Főadmin rangot kap a Discordon (a Tulajdonost csak te adhatod)
+  const cel = rang === 'tulaj' ? RANG_SZEREP.foadmin : kell;
+  for (const nev of Object.values(RANG_SZEREP)) {
+    const r = guild.roles.cache.find((x) => x.name === nev);
+    if (!r || r.position >= me.roles.highest.position) continue;
+    if (nev === cel && !tag.roles.cache.has(r.id)) await tag.roles.add(r, '[SHADOW] játékbeli rang').catch(() => {});
+    if (nev !== cel && tag.roles.cache.has(r.id)) await tag.roles.remove(r, '[SHADOW] játékbeli rang megszűnt').catch(() => {});
+  }
+}
+
+async function osszekotesJott(guild, p) {
+  const [, kod, steam, nev, rang] = p;
+  const k = (adat.kodok || {})[kod];
+  if (!k || k.lejar < Date.now()) { console.log(`Összekötés: ismeretlen / lejárt kód (${kod}) – ${nev}`); return; }
+  delete adat.kodok[kod];
+  adat.kotesek = adat.kotesek || {};
+  // ha ez a Steam fiók már máshoz volt kötve, azt töröljük
+  for (const [u, s] of Object.entries(adat.kotesek)) if (s.steam === steam) delete adat.kotesek[u];
+  adat.kotesek[k.user] = { steam, nev, rang };
+  mentes();
+  await rangBeallit(guild, k.user, rang);
+  const nap = csatorna(guild, 'naplo');
+  if (nap) nap.send({ content: `🔗 <@${k.user}> összekötötte a fiókját: **${escapeMarkdown(nev)}** (${steam}) – rang: **${RANG_NEV[rang] || rang}**`, allowedMentions: { parse: [] } }).catch(() => {});
+  const user = await client.users.fetch(k.user).catch(() => null);
+  if (user) user.send(`✅ Összekötöttük a Discord fiókodat a játékbeli **${nev}** fiókkal! Rangod: **${RANG_NEV[rang] || rang}**.`).catch(() => {});
+  console.log(`Összekötés: ${k.user} <-> ${steam} (${nev}, ${rang})`);
+}
+
+async function rangJott(guild, p) {
+  const [, steam, nev, rang] = p;
+  const ki = Object.entries(adat.kotesek || {}).find(([, v]) => v.steam === steam);
+  if (!ki) return;
+  const [userId, v] = ki;
+  if (v.rang === rang && v.nev === nev) { await rangBeallit(guild, userId, rang); return; }
+  v.rang = rang; v.nev = nev; mentes();
+  await rangBeallit(guild, userId, rang);
+}
+
+async function szintTop() {
+  if (!cfg.rconJelszo) throw new Error('Nincs beállítva az RCON jelszó a config.json-ban (rconJelszo).');
+  const sz = await q.rcon(cfg.szerverIp, cfg.szerverPort, cfg.rconJelszo, 'shadow_szint_top');
+  if (!sz.includes('SZT_VEGE')) throw new Error('A szerveren nem fut a shadow_szint.amxx plugin.');
+  return sz.split('\n').filter((l) => l.startsWith('SZT|')).map((l) => { const [, h, n, s, x] = l.trim().split('|'); return { h: +h, n, s: +s, x: +x }; });
+}
+
+async function profil(steam) {
+  if (!cfg.rconJelszo) throw new Error('Nincs beállítva az RCON jelszó a config.json-ban (rconJelszo).');
+  const sz = await q.rcon(cfg.szerverIp, cfg.szerverPort, cfg.rconJelszo, `shadow_profil ${steam}`);
+  const l = sz.split('\n').find((x) => x.startsWith('PRF|'));
+  if (!l) return null;
+  const [, nev, szint, maradek, kov, xp, hely] = l.trim().split('|');
+  return { nev, szint: +szint, maradek: +maradek, kov: +kov, xp: +xp, hely: +hely };
 }
 
 // ---------------- heti ranglista ----------------
@@ -370,6 +454,11 @@ const PARANCSOK = [
   new SlashCommandBuilder().setName('szerver').setDescription('A zombi szerver állapota'),
   new SlashCommandBuilder().setName('jatekosok').setDescription('Kik vannak fent a zombi szerveren'),
   new SlashCommandBuilder().setName('ip').setDescription('A zombi szerver címe'),
+  new SlashCommandBuilder().setName('osszekotes').setDescription('Összeköti a Discord fiókodat a játékbeli (Steam) fiókoddal'),
+  new SlashCommandBuilder().setName('levalasztas').setDescription('Megszünteti a Discord és a játék összekötését'),
+  new SlashCommandBuilder().setName('profil').setDescription('Játékbeli szint és rang')
+    .addUserOption((o) => o.setName('tag').setDescription('Kinek a profilja (ha üres: a tiéd)').setRequired(false)),
+  new SlashCommandBuilder().setName('szintek').setDescription('A 10 legmagasabb szintű játékos'),
   new SlashCommandBuilder().setName('heti').setDescription('A zombie szerver heti ranglistája')
     .addStringOption((o) => o.setName('melyik').setDescription('Melyik hét').setRequired(false)
       .addChoices({ name: 'Ez a hét', value: 'most' }, { name: 'Múlt hét', value: 'elozo' })),
@@ -570,6 +659,57 @@ client.on('interactionCreate', async (it) => {
   if (!it.isChatInputCommand()) return;
   console.log(`/${it.commandName} - ${it.user.tag}`);
   try {
+    if (it.commandName === 'osszekotes') {
+      const kod = ujKod(it.user.id);
+      return it.reply({ ephemeral: true, content: [
+        `🔗 **Az összekötő kódod: \`${kod}\`** (10 percig érvényes)`,
+        '',
+        'Lépj fel a zombie szerverre, és írd be a chatbe:',
+        `\`/discord ${kod}\``,
+        '',
+        'Utána a játékbeli rangod (VIP, Admin…) magától megjelenik itt a Discordon, és a `/profil` paranccsal látod a szinted.',
+      ].join('\n') });
+    }
+
+    if (it.commandName === 'levalasztas') {
+      const v = (adat.kotesek || {})[it.user.id];
+      if (!v) return it.reply({ ephemeral: true, content: 'Nincs összekötve a fiókod.' });
+      delete adat.kotesek[it.user.id]; mentes();
+      await rangBeallit(it.guild, it.user.id, 'nincs');
+      return it.reply({ ephemeral: true, content: `✅ Megszüntettem az összekötést (**${v.nev}**).` });
+    }
+
+    if (it.commandName === 'profil') {
+      const ki = it.options.getUser('tag') || it.user;
+      const v = (adat.kotesek || {})[ki.id];
+      if (!v) return it.reply({ ephemeral: true, content: ki.id === it.user.id ? 'Még nincs összekötve a fiókod. Használd a `/osszekotes` parancsot!' : 'Ő még nem kötötte össze a fiókját.' });
+      await it.deferReply();
+      const p = await profil(v.steam);
+      const e = new EmbedBuilder().setColor(SZIN).setTitle(`🧟 ${escapeMarkdown(p ? p.nev : v.nev)}`)
+        .setThumbnail(ki.displayAvatarURL({ size: 128 }))
+        .addFields({ name: '🏷️ Rang', value: RANG_NEV[v.rang] || v.rang, inline: true })
+        .setFooter({ text: PREFIX }).setTimestamp(new Date());
+      if (p) {
+        const tele = Math.round((p.maradek / Math.max(1, p.kov)) * 10);
+        e.addFields(
+          { name: '⭐ Szint', value: `**${p.szint}**`, inline: true },
+          { name: '🏆 Helyezés', value: `**${p.hely}.**`, inline: true },
+          { name: '📈 Következő szintig', value: `${'🟩'.repeat(tele)}${'⬛'.repeat(10 - tele)}  ${p.maradek}/${p.kov} XP` },
+        );
+      }
+      return it.editReply({ embeds: [e] });
+    }
+
+    if (it.commandName === 'szintek') {
+      await it.deferReply();
+      const t = await szintTop();
+      const ermek = ['🥇', '🥈', '🥉'];
+      const e = new EmbedBuilder().setColor(0x2ecc71).setTitle(`⭐ Legmagasabb szintek – ${PREFIX_MD}`)
+        .setDescription(t.length ? t.map((x, i) => `${ermek[i] || `\`${x.h}.\``} **${escapeMarkdown(x.n)}** — ${x.s}. szint (${x.x} XP)`).join('\n') : 'Még senkinek nincs XP-je.')
+        .setFooter({ text: PREFIX }).setTimestamp(new Date());
+      return it.editReply({ embeds: [e] });
+    }
+
     if (it.commandName === 'heti') {
       await it.deferReply();
       const elozo = it.options.getString('melyik') === 'elozo';
