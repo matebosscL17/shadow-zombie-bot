@@ -88,3 +88,9 @@ Naplót így nézhetsz: `pm2 logs shadowbot`
 - A már kiküldötteket megjegyzi (`adat.json`), kétszer nem küldi ki.
 - Az első indításkor a már meglévőket nem küldi ki újra; ezeket a `/patchnotes kuldes` paranccsal tudod kézzel kiküldeni.
 - Kikapcsolás: `config.json` → `"patchAuto": false`.
+
+## Happy Hour és heti ranglista
+- A CS szerver `shadow_happyhour.amxx` pluginja dupla LCS-t ad (hétköznap 20–22, hétvégén egész nap). A bot a **hírek / bejelentések** csatornába kiírja, amikor kezdődik és amikor véget ér.
+- A `shadow_mvp.amxx` számolja a heti statisztikát. A bot **minden hétfőn 12 órától** kiteszi a múlt hét legjobbjait az **eredmények / ranglista** csatornába (`config.json` → `"hetiOra": 12`).
+- `/heti` – az e heti vagy a múlt heti ranglista bármikor.
+- Mindkettőhöz kell az `rconJelszo` a `config.json`-ban.

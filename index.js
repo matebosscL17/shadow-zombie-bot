@@ -181,6 +181,8 @@ const KULCSSZAVAK = {
   statusz: ['szerverstátusz', 'szerverstatusz', 'státusz', 'statusz', 'status'],
   naplo: ['szervernapló', 'szervernaplo', 'napló', 'naplo'],
   udvozles: ['üdvözlés', 'udvozles', 'welcome', 'üdv'],
+  bejelentes: ['hírek', 'hirek', 'bejelentések', 'bejelentes', 'announcements', 'zombichat', 'általános', 'altalanos'],
+  eredmenyek: ['ranglista', 'toplista', 'eredmények', 'eredmenyek', 'leaderboard'],
 };
 const tisztit = (n) => n.toLowerCase().replace(/[^a-z0-9áéíóöőúüű]/g, '');
 
@@ -267,6 +269,20 @@ async function naploLekeres() {
   }
   if (adat.pluginFigyelmeztetes) { adat.pluginFigyelmeztetes = false; mentes(); }
 
+  // nyilvános bejelentések (pl. Happy Hour) a közös csatornába
+  const pub = szoveg.split('\n').filter((l) => l.startsWith('SDCP|')).map((l) => l.slice(5).trim()).filter(Boolean);
+  if (pub.length) {
+    const pc = csatorna(guild, 'bejelentes');
+    if (pc) {
+      for (const p of pub) {
+        const e = new EmbedBuilder().setColor(p.startsWith('🔥') ? 0xff8c00 : 0x5865f2).setDescription(p)
+          .setFooter({ text: PREFIX }).setTimestamp(new Date());
+        if (p.startsWith('🔥')) e.addFields({ name: '🎮 Csatlakozás', value: `\`connect ${cim()}\`` });
+        await pc.send({ embeds: [e] }).catch(() => {});
+      }
+    } else console.error('Bejelentés: nincs meg a csatorna (hírek / bejelentések):', pub.join(' | '));
+  }
+
   const sorok = szoveg.split('\n').filter((l) => l.startsWith('SDC|')).map((l) => l.slice(4).trim());
   if (!sorok.length) return;
 
@@ -279,11 +295,84 @@ async function naploLekeres() {
   if (darab) await ch.send({ content: darab, allowedMentions: { parse: [] } }).catch(() => {});
 }
 
+// ---------------- heti ranglista ----------------
+// A CS szerver shadow_mvp.amxx pluginja számolja (RCON: shadow_heti_top [elozo]).
+const KAT = [
+  ['oles', '🔫 Legtöbb zombi ölés', 'ölés'],
+  ['fert', '🧟 Legtöbb fertőzés', 'fertőzés'],
+  ['sebz', '💥 Legtöbb sebzés', 'sebzés'],
+  ['mvp', '🏆 Legtöbbször a kör legjobbja', 'x'],
+];
+
+async function hetiAdat(elozo) {
+  if (!cfg.rconJelszo) throw new Error('Nincs beállítva az RCON jelszó a config.json-ban (rconJelszo).');
+  const szoveg = await q.rcon(cfg.szerverIp, cfg.szerverPort, cfg.rconJelszo, elozo ? 'shadow_heti_top elozo' : 'shadow_heti_top');
+  const vege = szoveg.split('\n').find((l) => l.startsWith('SHT_VEGE|'));
+  if (!vege) throw new Error('A szerveren nem fut a shadow_mvp.amxx plugin.');
+  const [, het, db] = vege.trim().split('|');
+  const kat = {};
+  for (const l of szoveg.split('\n')) {
+    if (!l.startsWith('SHT|')) continue;
+    const [, k, hely, nev, ertek] = l.trim().split('|');
+    (kat[k] = kat[k] || []).push({ hely: +hely, nev, ertek: +ertek });
+  }
+  return { het, db: +db, kat };
+}
+
+function hetiEmbed(a, elozo) {
+  const ermek = ['🥇', '🥈', '🥉', '4.', '5.'];
+  const e = new EmbedBuilder()
+    .setColor(0xffd700)
+    .setTitle(`🏆 ${elozo ? 'A múlt hét' : 'E hét'} legjobbjai – ${PREFIX_MD} Zombie`)
+    .setDescription(a.db ? `**${a.db}** játékos játszott ${elozo ? 'a múlt héten' : 'ezen a héten'}. Gratulálunk a legjobbaknak! 🎉` : 'Ezen a héten még nincs eredmény.')
+    .setFooter({ text: `${PREFIX} • hét: ${a.het}` })
+    .setTimestamp(new Date());
+  for (const [k, cim, egyseg] of KAT) {
+    const lista = (a.kat[k] || []).sort((x, y) => x.hely - y.hely);
+    if (!lista.length) continue;
+    e.addFields({
+      name: cim,
+      value: lista.map((p, i) => `${ermek[i]} **${escapeMarkdown(p.nev)}** — ${p.ertek}${egyseg === 'x' ? 'x' : ' ' + egyseg}`).join('\n'),
+      inline: true,
+    });
+  }
+  return e;
+}
+
+// minden hétfőn (magyar idő szerint cfg.hetiOra órától) kiteszi a múlt hét legjobbjait
+function magyarIdo() {
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Budapest', weekday: 'short', hour: '2-digit', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const g = (t) => (p.find((x) => x.type === t) || {}).value;
+  return { nap: g('weekday'), ora: +g('hour'), datum: `${g('year')}-${g('month')}-${g('day')}` };
+}
+
+async function hetiEllenoriz() {
+  if (cfg.hetiRanglista === false || !cfg.rconJelszo) return;
+  const m = magyarIdo();
+  if (m.nap !== 'Mon' || m.ora < (cfg.hetiOra ?? 12) || adat.hetiKiment === m.datum) return;
+  const guild = client.guilds.cache.get(cfg.guildId);
+  if (!guild) return;
+  const ch = csatorna(guild, 'eredmenyek') || csatorna(guild, 'bejelentes');
+  if (!ch) return;
+  try {
+    const a = await hetiAdat(true);
+    await ch.send({ embeds: [hetiEmbed(a, true)] });
+    adat.hetiKiment = m.datum;
+    mentes();
+    console.log('Heti ranglista kiküldve:', a.het);
+  } catch (e) {
+    console.error('Heti ranglista hiba:', e.message);
+  }
+}
+
 // ---------------- parancsok ----------------
 const PARANCSOK = [
   new SlashCommandBuilder().setName('szerver').setDescription('A zombi szerver állapota'),
   new SlashCommandBuilder().setName('jatekosok').setDescription('Kik vannak fent a zombi szerveren'),
   new SlashCommandBuilder().setName('ip').setDescription('A zombi szerver címe'),
+  new SlashCommandBuilder().setName('heti').setDescription('A zombie szerver heti ranglistája')
+    .addStringOption((o) => o.setName('melyik').setDescription('Melyik hét').setRequired(false)
+      .addChoices({ name: 'Ez a hét', value: 'most' }, { name: 'Múlt hét', value: 'elozo' })),
   new SlashCommandBuilder().setName('setup').setDescription('Felépíti a Discord szervert: rangok, csatornák, jogok (csak a tulaj)'),
   new SlashCommandBuilder().setName('patchnotes').setDescription('Patch Notes kiírása a CS 1.6 szerver frissítéseiről (Admin és fölötte)')
     .addSubcommand((sc) => sc.setName('kuldes').setDescription('Egy kész Patch Notes kiküldése a patchnotes mappából')
@@ -481,6 +570,13 @@ client.on('interactionCreate', async (it) => {
   if (!it.isChatInputCommand()) return;
   console.log(`/${it.commandName} - ${it.user.tag}`);
   try {
+    if (it.commandName === 'heti') {
+      await it.deferReply();
+      const elozo = it.options.getString('melyik') === 'elozo';
+      const a = await hetiAdat(elozo);
+      return it.editReply({ embeds: [hetiEmbed(a, elozo)] });
+    }
+
     if (it.commandName === 'ip') {
       return it.reply(`🌐 **${PREFIX_MD}** zombie szerver: \`connect ${cim()}\`\nMásold be a CS konzolba (~ gomb)!`);
     }
@@ -799,6 +895,8 @@ async function indulas() {
   statuszFrissit();
   setInterval(statuszFrissit, Math.max(30, cfg.statuszMasodperc || 60) * 1000);
   setInterval(naploLekeres, Math.max(10, cfg.naploMasodperc || 15) * 1000);
+  setInterval(hetiEllenoriz, 5 * 60 * 1000);
+  setTimeout(hetiEllenoriz, 30 * 1000);
 }
 // a discord.js verziójának megfelelő nevet használja (ready / clientReady)
 client.once(Events.ClientReady || 'ready', indulas);
