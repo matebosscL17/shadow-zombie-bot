@@ -16,5 +16,6 @@
   },
   "hetiOra": 12,
   "hetiRanglista": true,
-  "rangSzinkron": true
+  "rangSzinkron": true,
+  "dcBovites": true
 }

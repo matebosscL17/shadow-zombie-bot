@@ -98,6 +98,15 @@ Naplót így nézhetsz: `pm2 logs shadowbot`
 - `/profil [tag]` – játékbeli szint, XP, helyezés és rang.
 - `/szintek` – a 10 legmagasabb szintű játékos.
 
+### Discord bővítés (magától)
+Induláskor a bot létrehozza, ami hiányzik:
+- **┃🔗・összekötés** – panel gombokkal: 🔗 Kód kérése, 📊 Profilom, ✖️ Leválasztás
+- **┃📖・játék-útmutató** – játékbeli parancsok, rendszerek, Discord parancsok
+- **┃⭐・szintek** – a 10 legmagasabb szintű játékos (10 percenként frissül)
+- **🔗 Összekötött** rang – aki összekötötte a fiókját
+A meglévő csatornákhoz nem nyúl. Ha egy ilyen csatornát kitörölsz, nem csinálja meg újra (csak `/setup` után).
+Kikapcsolás: `"dcBovites": false`.
+
 ### Rang szinkron
 Összekötés után a játékbeli rang magától megjelenik a Discordon (30 mp-enként figyeli a szerver):
 VIP → 💎 VIP, Moderátor → ⚔️ Moderátor, Admin → 🛡️ Admin, Főadmin → 🔱 Főadmin.
