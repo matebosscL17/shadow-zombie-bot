@@ -56,6 +56,7 @@ A szabályokra **pontszámmal** hivatkozunk (pl. `4.2`), így a büntetésnél m
 `7.2` **Koldulás.** Tilos az LCS, VIP vagy rang folyamatos kérése a többiektől és a staff-tól.
 `7.3` **Hibák.** Ha bugot találsz (pl. végtelen LCS), **jelentsd** a ┃🐛・hibajelentés csatornában. Aki kihasználja, elveszítheti az LCS-ét és kitiltást kaphat.
 `7.4` **VIP.** A VIP és a rangok a szerver szabályai alól **nem mentesítenek**. Szabályszegésért a VIP is elvehető.
+`7.5` **Ammózás.** Tilos az LCS összebeszélt „farmolása”: pl. a zombi direkt egy helyben áll vagy bebújik, hogy a haverja lőhesse és LCS-t gyűjtsön, vagy a Nemesis / Assassin / Boss szándékosan nem támad. Az így szerzett LCS-t elvesszük, és **mindkét játékos** büntetést kap.
 
 ## 🛡️ 8. STAFF
 `8.1` **Döntések.** Az adminok döntését tiszteletben kell tartani. Vitát ne a chatben, hanem privátban vagy a hibajelentésben rendezz.
@@ -72,6 +73,7 @@ A szabályokra **pontszámmal** hivatkozunk (pl. `4.2`), így a büntetésnél m
 🔴 Reklám (`1.4`) → **örök ban**
 🟠 Bug kihasználás (`4.2`, `7.3`) → **1–7 nap ban**
 🟠 Szabotázs, csapat kizárása (`5.1`, `5.2`, `5.3`) → **kick → 1 nap ban**
+🟠 Ammózás (`7.5`) → **LCS elvétel + 1–3 nap ban** (mindkét félnek)
 🟡 Sértegetés, spam (`1.1`, `2.2`, `4.8`) → **gag 30 perc → 1 nap**
 🟡 Retry, AFK (`4.3`, `4.6`) → **kick → 1 nap ban**
 🟡 Mikrofon spam (`3.1`, `4.5`) → **némítás**
