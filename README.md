@@ -111,6 +111,11 @@ Kikapcsolás: `"dcBovites": false`.
 A játékban a `/discord` (vagy `/dc`) kiírja a Discord meghívó linket, és 10 percenként a chatbe is (`shadow_dc_hirdetes 600`, 0 = ki).
 A linket a bot magától beállítja (örök meghívót csinál), ha van `rconJelszo`. Saját link: `"meghivo": "https://discord.gg/xxx"` a config.json-ban.
 
+### Zenék a Patch Notes-ban
+A Patch Notes .md fájlba írj egy ilyen sort: `@zene no_money.mp3 | Galantis - No Money`
+Az mp3-at tedd a bot mappájában a **zenek** mappába (bot-hosting.net, NEM a GitHubra).
+A bot a Patch Notes alá csatolja, a Discordon meg lehet hallgatni. Ha a zene csak később kerül fel, akkor küldi ki, amikor megtalálja.
+
 ### Rang szinkron
 Összekötés után a játékbeli rang magától megjelenik a Discordon (30 mp-enként figyeli a szerver):
 VIP → 💎 VIP, Moderátor → ⚔️ Moderátor, Admin → 🛡️ Admin, Főadmin → 🔱 Főadmin.

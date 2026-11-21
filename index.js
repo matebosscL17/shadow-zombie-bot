@@ -884,11 +884,73 @@ async function szabalyzatKuldes(guild) {
   return { ch, uj: true };
 }
 
-async function patchKuldes(guild, szoveg) {
+// ---------------- zenék a Patch Notes-ban ----------------
+// A Patch Notes .md fájlban egy ilyen sor:   @zene no_money.mp3 | Galantis - No Money
+// -> a bot a Patch Notes alá csatolja a zenét (a Discordon meg lehet hallgatni).
+// Az mp3-ak a bot mappájában, a "zenek" mappában vannak (bot-hosting.net-re kell feltölteni,
+// NEM a GitHubra). Ha egy zene csak később kerül fel, a bot akkor küldi ki, amikor megtalálja.
+const ZENE_MAPPA = path.join(__dirname, 'zenek');
+const zeneHianyLogolva = new Set();
+
+function zeneSorok(szoveg) {
+  const zenek = [];
+  const tiszta = String(szoveg).split('\n').filter((l) => {
+    const m = l.trim().match(/^@zene\s+([^|]+?)\s*(?:\|\s*(.+))?$/i);
+    if (!m) return true;
+    zenek.push({ fajl: path.basename(m[1].trim()), nev: (m[2] || m[1]).trim() });
+    return false;
+  }).join('\n');
+  return { tiszta, zenek };
+}
+
+function zeneCsatolmany(z) {
+  const ut = path.join(ZENE_MAPPA, z.fajl);
+  if (!fs.existsSync(ut)) return null;
+  const nev = z.nev.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim() || z.fajl.replace(/\.mp3$/i, '');
+  return new AttachmentBuilder(ut, { name: `${nev}.mp3` });
+}
+
+// kiküldi a még ki nem küldött (de már feltöltött) zenéket; visszaadja, hányat küldött
+async function zenekKuldese(ch, kulcs, zenek, fejlec) {
+  adat.zeneKuldve = adat.zeneKuldve || [];
+  const kell = zenek.filter((z) => !adat.zeneKuldve.includes(`${kulcs}|${z.fajl}`));
+  const van = kell.map((z) => ({ z, a: zeneCsatolmany(z) })).filter((x) => x.a);
+  for (let i = 0; i < van.length; i += 10) {
+    const csomag = van.slice(i, i + 10);
+    await ch.send({ content: i === 0 ? fejlec : null, files: csomag.map((x) => x.a), allowedMentions: { parse: [] } });
+    for (const x of csomag) adat.zeneKuldve.push(`${kulcs}|${x.z.fajl}`);
+    mentes();
+  }
+  const hianyzik = kell.filter((z) => !van.find((x) => x.z === z));
+  const ujHiany = hianyzik.filter((z) => !zeneHianyLogolva.has(z.fajl));
+  ujHiany.forEach((z) => zeneHianyLogolva.add(z.fajl));
+  if (ujHiany.length) console.log(`Patch Notes zene hiányzik a "zenek" mappából: ${ujHiany.map((z) => z.fajl).join(', ')} (töltsd fel a bot "zenek" mappájába)`);
+  return van.length;
+}
+
+async function patchKuldes(guild, szoveg, kulcs = null) {
   const ch = csatorna(guild, 'patch');
   if (!ch) throw new Error('Nincs meg a Patch Notes csatorna. Futtasd le a /setup-ot!');
-  for (const d of darabol(szoveg)) await ch.send({ content: d, allowedMentions: { parse: [] } });
+  const { tiszta, zenek } = zeneSorok(szoveg);
+  for (const d of darabol(tiszta)) await ch.send({ content: d, allowedMentions: { parse: [] } });
+  if (zenek.length) {
+    if (!kulcs) adat.zeneKuldve = (adat.zeneKuldve || []).filter((k) => !k.startsWith('__kezi|'));
+    await zenekKuldese(ch, kulcs || '__kezi', zenek, '🎧 **Hallgasd meg az új zenéket:**').catch((e) => console.error('Zene küldési hiba:', e.message));
+  }
   return ch;
+}
+
+// a korábban kiküldött Patch Notes-okhoz utólag feltöltött zenék
+async function patchZenekPotlasa(guild) {
+  const ch = csatorna(guild, 'patch');
+  if (!ch) return;
+  for (const f of patchFajlok()) {
+    if (!(adat.patchIsmert || []).includes(f)) continue;
+    const { tiszta, zenek } = zeneSorok(patchSzoveg(f) || '');
+    if (!zenek.length) continue;
+    const cim = (tiszta.split('\n').find((l) => l.startsWith('#')) || f).replace(/^#+\s*/, '');
+    await zenekKuldese(ch, f, zenek, `🎧 **${cim}** – hallgasd meg az új zenéket:`).catch((e) => console.error('Zene küldési hiba:', e.message));
+  }
 }
 
 client.on('interactionCreate', async (it) => {
@@ -1218,7 +1280,7 @@ async function patchAutoKuldes() {
     return [];
   }
   const ujak = mind.filter((f) => !adat.patchIsmert.includes(f));
-  if (!ujak.length) return [];
+  if (!ujak.length) { await patchZenekPotlasa(guild).catch(() => {}); return []; }
   const ch = csatorna(guild, 'patch');
   if (!ch) { console.error('Patch Notes: nincs meg a csatorna, nem tudom kiküldeni:', ujak.join(', ')); return []; }
   const kiment = [];
@@ -1226,7 +1288,7 @@ async function patchAutoKuldes() {
     const szoveg = patchSzoveg(f);
     if (!szoveg) continue;
     try {
-      await patchKuldes(guild, szoveg);
+      await patchKuldes(guild, szoveg, f);
       adat.patchIsmert.push(f);
       mentes();
       kiment.push(f);
@@ -1235,6 +1297,7 @@ async function patchAutoKuldes() {
       console.error(`Patch Notes kiküldési hiba (${f}):`, e.message);
     }
   }
+  await patchZenekPotlasa(guild).catch(() => {});
   return kiment;
 }
 

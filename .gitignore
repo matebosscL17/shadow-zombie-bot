@@ -2,3 +2,7 @@ node_modules/
 config.json
 adat.json
 *.log
+
+# a zenék csak a bot hostingon vannak, nem a GitHubon
+zenek/
+*.mp3
