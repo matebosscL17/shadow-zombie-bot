@@ -107,6 +107,10 @@ Induláskor a bot létrehozza, ami hiányzik:
 A meglévő csatornákhoz nem nyúl. Ha egy ilyen csatornát kitörölsz, nem csinálja meg újra (csak `/setup` után).
 Kikapcsolás: `"dcBovites": false`.
 
+### Discord link a játékban
+A játékban a `/discord` (vagy `/dc`) kiírja a Discord meghívó linket, és 10 percenként a chatbe is (`shadow_dc_hirdetes 600`, 0 = ki).
+A linket a bot magától beállítja (örök meghívót csinál), ha van `rconJelszo`. Saját link: `"meghivo": "https://discord.gg/xxx"` a config.json-ban.
+
 ### Rang szinkron
 Összekötés után a játékbeli rang magától megjelenik a Discordon (30 mp-enként figyeli a szerver):
 VIP → 💎 VIP, Moderátor → ⚔️ Moderátor, Admin → 🛡️ Admin, Főadmin → 🔱 Főadmin.

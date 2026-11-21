@@ -605,6 +605,33 @@ async function panelekFrissit(guild) {
   }
 }
 
+// ---------------- Discord meghívó link a játékba ----------------
+// A játékban a /discord parancs kiírja a linket. A bot csinál egy örök meghívót (vagy a config.json "meghivo"-t használja),
+// és RCON-on beállítja a szerveren: shadow_dc_link discord.gg/xxx
+async function meghivoLink(guild) {
+  if (cfg.meghivo) return String(cfg.meghivo).trim();
+  if (guild.vanityURLCode) return `https://discord.gg/${guild.vanityURLCode}`;
+  if (adat.meghivo) {
+    const inv = await guild.invites.fetch({ code: adat.meghivo.split('/').pop(), cache: false }).catch(() => null);
+    if (inv) return adat.meghivo;
+  }
+  const ch = csatorna(guild, 'udvozles') || csatorna(guild, 'szabaly') || guild.systemChannel
+    || guild.channels.cache.find((c) => c.type === ChannelType.GuildText);
+  if (!ch) return null;
+  const inv = await guild.invites.create(ch.id, { maxAge: 0, maxUses: 0, unique: false, reason: '[SHADOW] link a játékba (/discord)' })
+    .catch((e) => { console.error('Nem tudtam meghívót csinálni:', e.message); return null; });
+  if (!inv) return null;
+  adat.meghivo = inv.url; mentes();
+  return inv.url;
+}
+
+async function meghivoBeallit(guild) {
+  if (!cfg.rconJelszo || rconLeallitva) return;
+  const link = await meghivoLink(guild);
+  if (!link) return;
+  await q.rcon(cfg.szerverIp, cfg.szerverPort, cfg.rconJelszo, `shadow_dc_link "${link.replace(/"/g, '')}"`).catch(() => {});
+}
+
 async function szintTop() {
   if (!cfg.rconJelszo) throw new Error('Nincs beállítva az RCON jelszó a config.json-ban (rconJelszo).');
   const sz = await q.rcon(cfg.szerverIp, cfg.szerverPort, cfg.rconJelszo, 'shadow_szint_top');
@@ -1248,6 +1275,8 @@ async function indulas() {
     await dcBovites(guild).catch((e) => console.error('Bővítés hiba:', e.message));
     await panelekFrissit(guild);
     setInterval(() => szintekPanel(guild).catch(() => {}), 10 * 60 * 1000);
+    meghivoBeallit(guild).catch(() => {});
+    setInterval(() => meghivoBeallit(guild).catch(() => {}), 30 * 60 * 1000);
   }
   // tagok betöltése, hogy kilépéskor tudjuk a rangjaikat
   if (VAN_TAG_INTENT) {
